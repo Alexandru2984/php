@@ -1,4 +1,7 @@
 /database.sqlite
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
 /.env
 /vendor/
 node_modules/
