@@ -18,13 +18,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'login') {
+        if (time() < ($_SESSION['login_lock_until'] ?? 0)) {
+            flash_set('error', 'Too many attempts. Please wait a minute.');
+            redirect('/');
+        }
         $hash = env('ADMIN_PASSWORD_HASH') ?? '';
         $ok   = $hash !== '' && password_verify((string) ($_POST['password'] ?? ''), $hash);
         if ($ok) {
             session_regenerate_id(true);
             $_SESSION['is_admin'] = true;
+            unset($_SESSION['login_fails'], $_SESSION['login_lock_until']);
             flash_set('success', 'Signed in as admin.');
         } else {
+            $_SESSION['login_fails'] = ($_SESSION['login_fails'] ?? 0) + 1;
+            if ($_SESSION['login_fails'] >= 5) {
+                $_SESSION['login_lock_until'] = time() + 60;
+                $_SESSION['login_fails']      = 0;
+            }
             flash_set('error', 'Incorrect password.');
         }
         redirect('/');
