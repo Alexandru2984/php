@@ -101,117 +101,120 @@ $flash    = flash_get();
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="A little guestbook — leave a message.">
     <title>Guestbook</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+    <link rel="stylesheet" href="<?php echo e(asset('assets/style.css')); ?>">
+    <script src="<?php echo e(asset('assets/theme-init.js')); ?>"></script>
+    <script defer src="<?php echo e(asset('assets/app.js')); ?>"></script>
     <script defer src="https://analytics.micutu.com/script.js" data-website-id="c4e3a772-26b3-47e7-afec-b82097684551"></script>
 </head>
-<body class="bg-slate-50 min-h-screen flex flex-col items-center py-10 font-sans">
-    <div class="max-w-2xl w-full bg-white shadow-xl rounded-2xl p-8 border border-slate-100">
-        <div class="flex items-center justify-between mb-8">
-            <h1 class="text-3xl font-extrabold text-indigo-600 tracking-tight flex items-center">
-                <i class="fas fa-book-open mr-3"></i> Guestbook
+<body>
+    <main class="app">
+        <header class="header">
+            <h1 class="brand">
+                <span class="logo"><?php echo icon('book'); ?></span>
+                <span class="brand-text">Guestbook</span>
             </h1>
-            <div class="flex items-center gap-3">
-                <span class="bg-indigo-100 text-indigo-800 text-xs font-semibold px-3 py-1 rounded-full">
-                    <?php echo count($messages); ?> Messages
-                </span>
+            <div class="header-actions">
+                <span class="badge"><?php echo count($messages); ?> message<?php echo count($messages) === 1 ? '' : 's'; ?></span>
                 <?php if ($isAdmin): ?>
                     <form method="POST"><?php echo csrf_field(); ?>
                         <input type="hidden" name="action" value="logout">
-                        <button class="text-xs font-semibold text-slate-500 hover:text-slate-800">Sign out</button>
+                        <button class="linkbtn" type="submit">Sign out</button>
                     </form>
                 <?php endif; ?>
+                <button type="button" class="icon-btn" data-theme-toggle aria-label="Toggle theme">
+                    <?php echo icon('sun', 'icon-sun'); ?><?php echo icon('moon', 'icon-moon'); ?>
+                </button>
             </div>
-        </div>
+        </header>
 
         <?php if ($flash): ?>
-            <?php $isErr = $flash['type'] === 'error'; ?>
-            <div class="<?php echo $isErr ? 'bg-red-100 border-red-500 text-red-700' : 'bg-green-100 border-green-500 text-green-700'; ?> border-l-4 p-4 mb-6 rounded-r-lg" role="alert">
-                <p><?php echo e($flash['message']); ?></p>
+            <div class="flash <?php echo $flash['type'] === 'error' ? 'error' : 'success'; ?>" role="alert">
+                <?php echo icon($flash['type'] === 'error' ? 'alert' : 'check'); ?>
+                <span><?php echo e($flash['message']); ?></span>
             </div>
         <?php endif; ?>
 
-        <form method="POST" class="mb-10 bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-inner">
+        <form method="POST" class="compose">
             <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="post">
-            <!-- honeypot: hidden from real users -->
-            <input type="text" name="website" tabindex="-1" autocomplete="off" style="position:absolute;left:-9999px" aria-hidden="true">
-            <div class="mb-4">
-                <label class="block text-sm font-semibold text-slate-700 mb-2">Name (Optional)</label>
-                <div class="relative">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <i class="fas fa-user text-slate-400"></i>
-                    </div>
-                    <input type="text" name="author" maxlength="<?php echo AUTHOR_MAX; ?>" placeholder="John Doe" class="w-full pl-10 border border-slate-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow bg-white">
+            <input type="text" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
+
+            <div class="field">
+                <label class="label" for="author">Name <span>(optional)</span></label>
+                <div class="input-wrap">
+                    <?php echo icon('user', 'field-icon'); ?>
+                    <input class="input" id="author" name="author" type="text"
+                           maxlength="<?php echo AUTHOR_MAX; ?>" placeholder="Your name">
                 </div>
             </div>
-            <div class="mb-5">
-                <label class="block text-sm font-semibold text-slate-700 mb-2">Message <span class="text-red-500">*</span></label>
-                <div class="relative">
-                    <div class="absolute top-3 left-3 pointer-events-none">
-                        <i class="fas fa-comment-alt text-slate-400"></i>
-                    </div>
-                    <textarea name="message" required maxlength="<?php echo MESSAGE_MAX; ?>" rows="3" placeholder="What's on your mind?" class="w-full pl-10 border border-slate-300 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-shadow resize-none bg-white"></textarea>
+
+            <div class="field">
+                <label class="label" for="message">
+                    <span>Message <span class="req">*</span></span>
+                    <span class="counter" id="msg-counter"></span>
+                </label>
+                <div class="input-wrap">
+                    <?php echo icon('message', 'field-icon'); ?>
+                    <textarea class="textarea" id="message" name="message" required rows="3"
+                              maxlength="<?php echo MESSAGE_MAX; ?>" data-counter="msg-counter"
+                              placeholder="What's on your mind?"></textarea>
                 </div>
             </div>
-            <button type="submit" class="w-full bg-indigo-600 text-white font-bold px-4 py-3 rounded-lg hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-200 transition-all flex justify-center items-center gap-2 shadow-md hover:shadow-lg">
-                <i class="fas fa-paper-plane"></i> Post Message
-            </button>
+
+            <button class="btn" type="submit"><?php echo icon('send'); ?> Post message</button>
         </form>
 
-        <div>
-            <h2 class="text-xl font-bold text-slate-800 mb-5 border-b pb-3"><i class="fas fa-history mr-2 text-slate-400"></i>Recent Posts</h2>
+        <section>
+            <h2 class="section-title"><?php echo icon('history'); ?> Recent posts</h2>
             <?php if (count($messages) > 0): ?>
-                <div class="space-y-5">
+                <div class="feed">
                     <?php foreach ($messages as $msg): ?>
                         <?php $name = $msg['author'] ?? 'Anonymous'; ?>
-                        <div class="bg-white p-5 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-200 relative group">
+                        <article class="msg">
                             <?php if ($isAdmin): ?>
-                            <form method="POST" class="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity" onsubmit="return confirm('Delete this message?');">
+                            <form method="POST" data-confirm="Delete this message?">
                                 <?php echo csrf_field(); ?>
                                 <input type="hidden" name="action" value="delete">
                                 <input type="hidden" name="id" value="<?php echo (int) $msg['id']; ?>">
-                                <button type="submit" class="text-red-400 hover:text-red-600 p-2 bg-red-50 hover:bg-red-100 rounded-lg transition-colors" title="Delete message">
-                                    <i class="fas fa-trash-alt"></i>
-                                </button>
+                                <button class="msg-del" type="submit" title="Delete" aria-label="Delete message"><?php echo icon('trash'); ?></button>
                             </form>
                             <?php endif; ?>
-                            <div class="flex items-center gap-4 mb-3">
-                                <div class="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-100 to-indigo-200 text-indigo-700 flex items-center justify-center font-bold text-xl shadow-inner border border-indigo-100">
-                                    <?php echo e(avatar_initial($name)); ?>
-                                </div>
-                                <div>
-                                    <h3 class="font-bold text-slate-800"><?php echo e($name); ?></h3>
-                                    <p class="text-xs text-slate-500 font-medium" title="<?php echo e($msg['created_at']); ?>">
-                                        <i class="far fa-clock mr-1"></i> <?php echo e(time_ago($msg['created_at'])); ?>
+                            <div class="msg-head">
+                                <div class="avatar av-<?php echo avatar_index($name); ?>"><?php echo e(avatar_initial($name)); ?></div>
+                                <div class="msg-meta">
+                                    <p class="msg-author"><?php echo e($name); ?></p>
+                                    <p class="msg-time" title="<?php echo e($msg['created_at']); ?> UTC">
+                                        <?php echo icon('clock'); ?> <?php echo e(time_ago($msg['created_at'])); ?>
                                     </p>
                                 </div>
                             </div>
-                            <p class="text-slate-700 mt-2 whitespace-pre-wrap leading-relaxed bg-slate-50 p-4 rounded-lg border border-slate-100"><?php echo e($msg['content']); ?></p>
-                        </div>
+                            <p class="msg-body"><?php echo e($msg['content']); ?></p>
+                        </article>
                     <?php endforeach; ?>
                 </div>
             <?php else: ?>
-                <div class="text-center py-12 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
-                    <i class="fas fa-inbox text-5xl text-slate-300 mb-4 block"></i>
-                    <h3 class="text-lg font-semibold text-slate-700 mb-1">It's pretty quiet here</h3>
-                    <p class="text-slate-500">Be the first to leave a message in the guestbook!</p>
+                <div class="empty">
+                    <?php echo icon('inbox'); ?>
+                    <h3>It's pretty quiet here</h3>
+                    <p>Be the first to leave a message in the guestbook!</p>
                 </div>
             <?php endif; ?>
-        </div>
+        </section>
 
         <?php if (!$isAdmin): ?>
-        <details class="mt-10 text-sm text-slate-400">
-            <summary class="cursor-pointer hover:text-slate-600 select-none">Admin</summary>
-            <form method="POST" class="mt-3 flex gap-2">
+        <details class="admin">
+            <summary>Admin</summary>
+            <form method="POST" class="admin-form">
                 <?php echo csrf_field(); ?>
                 <input type="hidden" name="action" value="login">
-                <input type="password" name="password" placeholder="Admin password" class="flex-1 border border-slate-300 rounded-lg p-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-                <button class="bg-slate-700 text-white px-4 py-2 rounded-lg hover:bg-slate-800">Sign in</button>
+                <input class="input" type="password" name="password" placeholder="Admin password" autocomplete="current-password">
+                <button class="btn secondary" type="submit">Sign in</button>
             </form>
         </details>
         <?php endif; ?>
-    </div>
+    </main>
 </body>
 </html>
