@@ -89,12 +89,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ---------------------------------------------------------------------------
-// Read model
+// Read model — search + pagination
 // ---------------------------------------------------------------------------
-$isAdmin  = !empty($_SESSION['is_admin']);
-$messages = $pdo->query('SELECT * FROM messages ORDER BY created_at DESC, id DESC')
-                ->fetchAll();
-$flash    = flash_get();
+$isAdmin = !empty($_SESSION['is_admin']);
+
+$q      = mb_substr(trim((string) ($_GET['q'] ?? '')), 0, 100);
+$where  = '';
+$params = [];
+if ($q !== '') {
+    $where          = "WHERE author LIKE :q ESCAPE '\\' OR content LIKE :q ESCAPE '\\'";
+    $params[':q']   = '%' . addcslashes($q, '%_\\') . '%';
+}
+
+$countStmt = $pdo->prepare("SELECT COUNT(*) FROM messages $where");
+$countStmt->execute($params);
+$total = (int) $countStmt->fetchColumn();
+
+$perPage = PER_PAGE;
+$pages   = max(1, (int) ceil($total / $perPage));
+$page    = max(1, min($pages, (int) ($_GET['page'] ?? 1)));
+$offset  = ($page - 1) * $perPage;
+
+$stmt = $pdo->prepare(
+    "SELECT * FROM messages $where ORDER BY created_at DESC, id DESC LIMIT :lim OFFSET :off"
+);
+foreach ($params as $k => $v) {
+    $stmt->bindValue($k, $v, PDO::PARAM_STR);
+}
+$stmt->bindValue(':lim', $perPage, PDO::PARAM_INT);
+$stmt->bindValue(':off', $offset, PDO::PARAM_INT);
+$stmt->execute();
+$messages = $stmt->fetchAll();
+
+// ---------------------------------------------------------------------------
+// Read-only JSON API: /?format=json[&q=...&page=N]
+// ---------------------------------------------------------------------------
+if (($_GET['format'] ?? '') === 'json') {
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: public, max-age=30');
+    echo json_encode([
+        'total'    => $total,
+        'page'     => $page,
+        'pages'    => $pages,
+        'per_page' => $perPage,
+        'query'    => $q,
+        'messages' => array_map(static fn(array $m): array => [
+            'id'         => (int) $m['id'],
+            'author'     => $m['author'],
+            'content'    => $m['content'],
+            'created_at' => str_replace(' ', 'T', (string) $m['created_at']) . 'Z',
+        ], $messages),
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+    exit;
+}
+
+/** Build a URL for the feed preserving the active search query. */
+function feed_url(int $page, string $q): string
+{
+    $params = array_filter(['q' => $q, 'page' => $page > 1 ? $page : null],
+        static fn($v) => $v !== null && $v !== '');
+    return '/' . ($params ? '?' . http_build_query($params) : '');
+}
+
+$flash = flash_get();
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -117,7 +174,7 @@ $flash    = flash_get();
                 <span class="brand-text">Guestbook</span>
             </h1>
             <div class="header-actions">
-                <span class="badge"><?php echo count($messages); ?> message<?php echo count($messages) === 1 ? '' : 's'; ?></span>
+                <span class="badge"><?php echo $total; ?> message<?php echo $total === 1 ? '' : 's'; ?></span>
                 <?php if ($isAdmin): ?>
                     <form method="POST"><?php echo csrf_field(); ?>
                         <input type="hidden" name="action" value="logout">
@@ -168,12 +225,22 @@ $flash    = flash_get();
         </form>
 
         <section>
-            <h2 class="section-title"><?php echo icon('history'); ?> Recent posts</h2>
+            <div class="feed-head">
+                <h2 class="section-title"><?php echo icon('history'); ?> <?php echo $q !== '' ? 'Search results' : 'Recent posts'; ?></h2>
+                <form method="GET" class="search" role="search">
+                    <?php echo icon('search', 'field-icon'); ?>
+                    <input class="input search-input" type="search" name="q" value="<?php echo e($q); ?>"
+                           maxlength="100" placeholder="Search messages…" aria-label="Search messages">
+                    <?php if ($q !== ''): ?>
+                        <a class="search-clear" href="/" aria-label="Clear search">&times;</a>
+                    <?php endif; ?>
+                </form>
+            </div>
             <?php if (count($messages) > 0): ?>
                 <div class="feed">
                     <?php foreach ($messages as $msg): ?>
                         <?php $name = $msg['author'] ?? 'Anonymous'; ?>
-                        <article class="msg">
+                        <article class="msg" id="m<?php echo (int) $msg['id']; ?>">
                             <?php if ($isAdmin): ?>
                             <form method="POST" data-confirm="Delete this message?">
                                 <?php echo csrf_field(); ?>
@@ -194,6 +261,28 @@ $flash    = flash_get();
                             <p class="msg-body"><?php echo e($msg['content']); ?></p>
                         </article>
                     <?php endforeach; ?>
+                </div>
+
+                <?php if ($pages > 1): ?>
+                <nav class="pager" aria-label="Pagination">
+                    <?php if ($page > 1): ?>
+                        <a class="pager-btn" href="<?php echo e(feed_url($page - 1, $q)); ?>" rel="prev">&larr; Newer</a>
+                    <?php else: ?>
+                        <span class="pager-btn disabled">&larr; Newer</span>
+                    <?php endif; ?>
+                    <span class="pager-info">Page <?php echo $page; ?> of <?php echo $pages; ?></span>
+                    <?php if ($page < $pages): ?>
+                        <a class="pager-btn" href="<?php echo e(feed_url($page + 1, $q)); ?>" rel="next">Older &rarr;</a>
+                    <?php else: ?>
+                        <span class="pager-btn disabled">Older &rarr;</span>
+                    <?php endif; ?>
+                </nav>
+                <?php endif; ?>
+            <?php elseif ($q !== ''): ?>
+                <div class="empty">
+                    <?php echo icon('search'); ?>
+                    <h3>No matches</h3>
+                    <p>Nothing found for &ldquo;<?php echo e($q); ?>&rdquo;. <a href="/">Clear search</a></p>
                 </div>
             <?php else: ?>
                 <div class="empty">
