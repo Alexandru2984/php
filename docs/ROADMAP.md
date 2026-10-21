@@ -13,13 +13,14 @@ criteria.
   origin denial and nonce-based CSP.
 - **Partially delivered:** Stage 3 now has category-only abuse reports, a review queue,
   five moderation states, reversible actions, controlled reasons, privacy/about UI,
-  identifier minimisation and append-only admin audit; RSS/permalinks from Stage 5;
-  responsive/accessibility foundations from Stage 6; pinned CI, `security.txt` and
-  hardened systemd jobs from Stage 8.
+  identifier minimisation and append-only admin audit; Stage 5 now has RSS/permalinks,
+  a sessionless versioned read API, signed cursor pagination, strong ETags and
+  OpenAPI; responsive/accessibility foundations from Stage 6; pinned CI,
+  `security.txt` and hardened systemd jobs from Stage 8.
 - **Next priority:** off-host encrypted backup plus a production-snapshot restore
-  drill, an incident-response tabletop, browser accessibility checks, API endpoints
-  that avoid sessions, retention/export/erasure operations and risk-scored submission
-  heuristics that queue rather than delete content.
+  drill, an incident-response tabletop, browser accessibility checks, SQLite FTS5
+  search, retention/export/erasure operations, a dedicated API edge limit and
+  risk-scored submission heuristics that queue rather than delete content.
 - **Still deferred:** Stage 7 community features and the explicitly deferred features
   at the end of this document. They must not outrun the remaining privacy, abuse and
   observability controls.

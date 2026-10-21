@@ -21,7 +21,8 @@ traffic spikes and recent 5xx responses every five minutes and already covers th
 
 The guestbook probe checks:
 
-- HTML marker, JSON schema and RSS shape through the public Cloudflare route;
+- HTML marker, sessionless API v1 schema/cache/cookie guarantees and RSS shape through
+  the public Cloudflare route;
 - the self-hosted analytics script and all privacy attributes in rendered HTML;
 - SQLite `quick_check`, the minimum migration count, recent admin-login failures and
   the privacy-minimal count of open abuse reports;

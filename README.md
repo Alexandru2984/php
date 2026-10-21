@@ -10,6 +10,8 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 - Post messages with an optional name; colored deterministic avatars.
 - Search and pagination.
 - Permanent message links and an RSS 2.0 feed (`/?format=rss`).
+- Sessionless `/api/v1/messages` with signed cursor pagination, ETags, conditional
+  requests and a published OpenAPI 3.1 contract.
 - Light/dark theme with a persisted toggle.
 - Privacy-minimal abuse reporting with a rate-limited admin review queue.
 - Five-state moderation, reversible actions and an append-only admin audit trail.
@@ -35,6 +37,7 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 - `index.php` — controller + view.
 - `config.php` — paths, `.env` loading, session and database bootstrap.
 - `lib.php` — helpers (escaping, CSRF, rate limiting, icons, avatars, time).
+- `api.php` / `openapi.json` — public API implementation and machine contract.
 - `assets/` — self-hosted CSS/JS (`style.css`, `app.js`, `theme-init.js`).
 - `../php_micutu_app_storage/database.sqlite` — the database (not web-served).
 
