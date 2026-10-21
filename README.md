@@ -11,8 +11,9 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 - Search and pagination.
 - Permanent message links and an RSS 2.0 feed (`/?format=rss`).
 - Light/dark theme with a persisted toggle.
-- Admin login for moderation (soft-deleting messages).
-- Recoverable moderation trash with restore controls and a recent security-event view.
+- Privacy-minimal abuse reporting with a rate-limited admin review queue.
+- Five-state moderation, reversible actions and an append-only admin audit trail.
+- Responsive admin workspace with status totals, controlled reasons and security events.
 - Read-only JSON API: `/?format=json` (supports `q` and `page`).
 - Privacy minimisation that detaches abuse-prevention identifiers after 24 hours;
   analytics is opt-in through configuration.
@@ -26,6 +27,8 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 - Input validation and length limits; control characters stripped.
 - Rate limiting (per-session cooldown + per-IP hourly cap) and a bot honeypot.
 - Deletion is admin-only (bcrypt password) with failed-login throttling.
+- Reports never store a reporter identifier or arbitrary text; moderation cannot be
+  triggered automatically by public reports.
 - Strict Content-Security-Policy (no `unsafe-inline`), set at the nginx vhost.
 
 ## Structure

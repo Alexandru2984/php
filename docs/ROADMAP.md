@@ -11,13 +11,15 @@ criteria.
   fail-closed configuration, persistent auth throttling, versioned migrations,
   security events, immutable releases, dedicated FPM identity, strict nginx routing,
   origin denial and nonce-based CSP.
-- **Partially delivered:** recoverable moderation and identifier minimisation from
-  Stage 3; RSS/permalinks from Stage 5; responsive/accessibility foundations from
-  Stage 6; pinned CI, `security.txt` and hardened systemd jobs from Stage 8.
-- **Next priority:** privacy/about/report-abuse UI,
-  moderation states/queue, off-host encrypted backup plus a production-snapshot
-  restore drill, an incident-response tabletop, browser accessibility checks, and API
-  endpoints that avoid sessions.
+- **Partially delivered:** Stage 3 now has category-only abuse reports, a review queue,
+  five moderation states, reversible actions, controlled reasons, privacy/about UI,
+  identifier minimisation and append-only admin audit; RSS/permalinks from Stage 5;
+  responsive/accessibility foundations from Stage 6; pinned CI, `security.txt` and
+  hardened systemd jobs from Stage 8.
+- **Next priority:** off-host encrypted backup plus a production-snapshot restore
+  drill, an incident-response tabletop, browser accessibility checks, API endpoints
+  that avoid sessions, retention/export/erasure operations and risk-scored submission
+  heuristics that queue rather than delete content.
 - **Still deferred:** Stage 7 community features and the explicitly deferred features
   at the end of this document. They must not outrun the remaining privacy, abuse and
   observability controls.
