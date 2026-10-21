@@ -45,6 +45,8 @@ export ANALYTICS_WEBSITE_ID=c4e3a772-26b3-47e7-afec-b82097684551
 mkdir -p "${APP_STORAGE_DIR}"
 cli_session_dir="${tmp_dir}/cli-sessions"
 mkdir -p "${cli_session_dir}"
+web_session_dir="${tmp_dir}/web-sessions"
+mkdir -p "${web_session_dir}"
 
 php -d "session.save_path=${cli_session_dir}" \
     "${repo_dir}/scripts/migrate.php" >"${tmp_dir}/migration.log"
@@ -52,18 +54,77 @@ if find "${cli_session_dir}" -type f -print -quit | grep --quiet .; then
     echo 'CLI migration unexpectedly created a PHP session.' >&2
     exit 1
 fi
-php -S "127.0.0.1:${port}" -t "${repo_dir}" >"${tmp_dir}/server.log" 2>&1 &
+php -d "session.save_path=${web_session_dir}" \
+    -S "127.0.0.1:${port}" -t "${repo_dir}" "${repo_dir}/index.php" \
+    >"${tmp_dir}/server.log" 2>&1 &
 server_pid=$!
 
 for _ in {1..40}; do
-    if curl --silent --fail --output /dev/null "${APP_ORIGIN}/"; then
+    if curl --silent --fail --output /dev/null "${APP_ORIGIN}/api/v1/messages"; then
         break
     fi
     sleep 0.1
 done
 
+api_headers="${tmp_dir}/api-headers.txt"
+api_body="${tmp_dir}/api-body.json"
+api_status="$(curl --silent --show-error \
+    --dump-header "${api_headers}" \
+    --output "${api_body}" \
+    --write-out '%{http_code}' \
+    --header 'Origin: https://another.example' \
+    "${APP_ORIGIN}/api/v1/messages")"
+[[ "${api_status}" == 200 ]]
+grep --ignore-case --quiet '^Content-Type: application/json; charset=utf-8' "${api_headers}"
+grep --ignore-case --quiet '^Cache-Control: public, max-age=30, stale-while-revalidate=60' "${api_headers}"
+grep --ignore-case --quiet '^Vary: Accept-Encoding' "${api_headers}"
+if grep --ignore-case --quiet '^Set-Cookie:' "${api_headers}"; then
+    echo 'Stateless API unexpectedly emitted a cookie.' >&2
+    exit 1
+fi
+if grep --ignore-case --quiet '^Access-Control-Allow-Origin:' "${api_headers}"; then
+    echo 'Same-origin API unexpectedly emitted a CORS grant.' >&2
+    exit 1
+fi
+api_etag="$(sed -n 's/^ETag: \(.*\)\r$/\1/ip' "${api_headers}")"
+[[ "${api_etag}" =~ ^\"[0-9a-f]{64}\"$ ]]
+# The PHP snippet is intentionally single-quoted shell input.
+# shellcheck disable=SC2016
+php -r '$v=json_decode(stream_get_contents(STDIN),true,8,JSON_THROW_ON_ERROR);$ok=($v["api_version"]??null)==="1.0"&&($v["data"]??null)===[]&&($v["pagination"]["has_more"]??null)===false;exit($ok?0:1);' <"${api_body}"
+
+conditional_headers="${tmp_dir}/api-conditional-headers.txt"
+conditional_body="${tmp_dir}/api-conditional-body.txt"
+conditional_status="$(curl --silent --show-error \
+    --dump-header "${conditional_headers}" \
+    --output "${conditional_body}" \
+    --write-out '%{http_code}' \
+    --header "If-None-Match: ${api_etag}" \
+    "${APP_ORIGIN}/api/v1/messages")"
+[[ "${conditional_status}" == 304 ]]
+[[ ! -s "${conditional_body}" ]]
+if grep --ignore-case --quiet '^Set-Cookie:' "${conditional_headers}"; then
+    echo 'Conditional API request unexpectedly emitted a cookie.' >&2
+    exit 1
+fi
+
+[[ "$(curl --silent --show-error --head --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/api/v1/messages")" == 200 ]]
+[[ "$(curl --silent --show-error --output "${tmp_dir}/api-error.json" --write-out '%{http_code}' "${APP_ORIGIN}/api/v1/messages?limit=0")" == 400 ]]
+grep --quiet '"code":"invalid_limit"' "${tmp_dir}/api-error.json"
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/api/v1/messages?cursor=invalid")" == 400 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/api/v1/messages?unknown=1")" == 400 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --data 'action=post' "${APP_ORIGIN}/api/v1/messages")" == 405 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/not-a-route")" == 404 ]]
+if find "${web_session_dir}" -type f -print -quit | grep --quiet .; then
+    echo 'Sessionless API unexpectedly created a PHP session.' >&2
+    exit 1
+fi
+
 cookie_jar="${tmp_dir}/cookies.txt"
 html="$(curl --silent --show-error --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/")"
+if ! find "${web_session_dir}" -type f -print -quit | grep --quiet .; then
+    echo 'Interactive HTML request did not create its expected PHP session.' >&2
+    exit 1
+fi
 csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${html}" | head -n 1)"
 [[ "${csrf}" =~ ^[0-9a-f]{64}$ ]]
 grep --quiet 'data-website-id="c4e3a772-26b3-47e7-afec-b82097684551"' <<<"${html}"
@@ -122,6 +183,17 @@ permalink_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-j
 grep --quiet 'Hello from the isolated smoke test' <<<"${permalink_html}"
 grep --quiet 'No free-text report or reporter identifier is stored.' <<<"${permalink_html}"
 [[ "$(request_code "${APP_ORIGIN}/?message%5B%5D=${message_id}")" == 400 ]]
+
+populated_api_headers="${tmp_dir}/api-populated-headers.txt"
+populated_api_body="$(curl --silent --show-error --dump-header "${populated_api_headers}" "${APP_ORIGIN}/api/v1/messages?limit=1")"
+grep --quiet 'Hello from the isolated smoke test' <<<"${populated_api_body}"
+populated_etag="$(sed -n 's/^ETag: \(.*\)\r$/\1/ip' "${populated_api_headers}")"
+[[ "${populated_etag}" =~ ^\"[0-9a-f]{64}\"$ ]]
+[[ "${populated_etag}" != "${api_etag}" ]]
+if grep --ignore-case --quiet '^Set-Cookie:' "${populated_api_headers}"; then
+    echo 'Populated API request unexpectedly emitted a cookie.' >&2
+    exit 1
+fi
 
 report_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${permalink_html}" | head -n 1)"
 [[ "${report_csrf}" =~ ^[0-9a-f]{64}$ ]]

@@ -2,16 +2,99 @@
 
 declare(strict_types=1);
 
+$method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+$requestUri = (string) ($_SERVER['REQUEST_URI'] ?? '/');
+$requestPath = parse_url($requestUri, PHP_URL_PATH);
+$requestPath = is_string($requestPath) ? $requestPath : '';
+$isApiV1 = $requestPath === '/api/v1/messages';
+$isInteractiveUi = in_array($requestPath, ['/', '/index.php'], true);
+
 define('GUESTBOOK_APP', true);
+define('GUESTBOOK_STATELESS_REQUEST', !$isInteractiveUi);
 require __DIR__ . '/config.php';
 require __DIR__ . '/lib.php';
+require __DIR__ . '/api.php';
 
-$method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
 if (!in_array($method, ['GET', 'HEAD', 'POST'], true)) {
-    header('Allow: GET, HEAD, POST');
+    header('Allow: ' . ($isApiV1 ? 'GET, HEAD' : 'GET, HEAD, POST'));
+    if ($isApiV1) {
+        api_error_response(405, 'method_not_allowed', 'Only GET and HEAD are supported.');
+    }
     abort_response(405, 'Method not allowed.');
 }
-if (!empty($_SERVER['PATH_INFO'])) {
+if (!$isApiV1 && !empty($_SERVER['PATH_INFO'])) {
+    abort_response(404, 'Not found.');
+}
+
+// ---------------------------------------------------------------------------
+// Sessionless public API. This branch must exit before any session-backed UI.
+// ---------------------------------------------------------------------------
+if ($isApiV1) {
+    if (!in_array($method, ['GET', 'HEAD'], true)) {
+        header('Allow: GET, HEAD');
+        api_error_response(
+            405,
+            'method_not_allowed',
+            'Only GET and HEAD are supported.',
+            $method === 'HEAD'
+        );
+    }
+
+    foreach (array_keys($_GET) as $queryKey) {
+        if (!is_string($queryKey) || !in_array($queryKey, ['limit', 'cursor'], true)) {
+            api_error_response(400, 'invalid_query', 'Unsupported query parameter.', $method === 'HEAD');
+        }
+    }
+
+    $limit = 20;
+    if (array_key_exists('limit', $_GET)) {
+        $rawLimit = string_input($_GET, 'limit');
+        if ($rawLimit === null || preg_match('/\A(?:[1-9]|[1-4][0-9]|50)\z/D', $rawLimit) !== 1) {
+            api_error_response(400, 'invalid_limit', 'Limit must be between 1 and 50.', $method === 'HEAD');
+        }
+        $limit = (int) $rawLimit;
+    }
+
+    $cursor = null;
+    if (array_key_exists('cursor', $_GET)) {
+        $rawCursor = string_input($_GET, 'cursor');
+        if ($rawCursor === null) {
+            api_error_response(400, 'invalid_cursor', 'Cursor is invalid.', $method === 'HEAD');
+        }
+        try {
+            $cursor = api_cursor_decode($rawCursor);
+        } catch (InvalidArgumentException) {
+            api_error_response(400, 'invalid_cursor', 'Cursor is invalid.', $method === 'HEAD');
+        }
+    }
+
+    $document = ['api_version' => '1.0'] + api_list_messages($pdo, $limit, $cursor);
+    $json = json_encode(
+        $document,
+        JSON_UNESCAPED_UNICODE
+            | JSON_UNESCAPED_SLASHES
+            | JSON_INVALID_UTF8_SUBSTITUTE
+            | JSON_THROW_ON_ERROR
+    );
+    $etag = '"' . hash('sha256', $json) . '"';
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: public, max-age=30, stale-while-revalidate=60');
+    header('ETag: ' . $etag);
+    header('Vary: Accept-Encoding');
+    header('X-Robots-Tag: noindex');
+
+    $ifNoneMatch = $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
+    if (is_string($ifNoneMatch) && api_etag_matches($ifNoneMatch, $etag)) {
+        http_response_code(304);
+        exit;
+    }
+    if ($method !== 'HEAD') {
+        echo $json;
+    }
+    exit;
+}
+
+if (!$isInteractiveUi) {
     abort_response(404, 'Not found.');
 }
 

@@ -142,7 +142,9 @@ const ADMIN_MAX_SECONDS   = 43200; // 12 hours
 // Session hardening. CLI maintenance and migration jobs do not have a browser
 // session and must not create files in PHP's shared session directory.
 // ---------------------------------------------------------------------------
-if (PHP_SAPI !== 'cli') {
+$__statelessRequest = defined('GUESTBOOK_STATELESS_REQUEST')
+    && GUESTBOOK_STATELESS_REQUEST === true;
+if (PHP_SAPI !== 'cli' && !$__statelessRequest) {
     ini_set('session.use_strict_mode', '1');
     ini_set('session.use_only_cookies', '1');
     ini_set('session.cookie_httponly', '1');
@@ -222,5 +224,6 @@ unset(
     $__authenticatedAt,
     $__lastSeenAt,
     $__expired,
-    $__lastRotation
+    $__lastRotation,
+    $__statelessRequest
 );

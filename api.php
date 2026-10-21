@@ -160,3 +160,23 @@ function api_etag_matches(string $ifNoneMatch, string $currentEtag): bool
     }
     return false;
 }
+
+/** Send a stable JSON error document without cache or session side effects. */
+function api_error_response(int $status, string $code, string $message, bool $head = false): never
+{
+    if ($status < 400 || $status > 599
+        || preg_match('/\A[a-z][a-z0-9_]{1,63}\z/D', $code) !== 1) {
+        throw new InvalidArgumentException('Invalid API error');
+    }
+    http_response_code($status);
+    header('Content-Type: application/json; charset=utf-8');
+    header('Cache-Control: no-store');
+    header('X-Robots-Tag: noindex');
+    if (!$head) {
+        echo json_encode(
+            ['error' => ['code' => $code, 'message' => $message]],
+            JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR
+        );
+    }
+    exit;
+}
