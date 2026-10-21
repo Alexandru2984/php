@@ -84,10 +84,38 @@ check($error !== null, 'blank message is rejected');
 check($error !== null, 'overlong author is rejected');
 
 $db = new PDO('sqlite::memory:');
-$schema = file_get_contents(dirname(__DIR__) . '/migrations/001_initial.sql');
-check($schema !== false && $db->exec($schema) !== false, 'initial migration executes');
+$migrationFiles = glob(dirname(__DIR__) . '/migrations/*.sql') ?: [];
+sort($migrationFiles, SORT_STRING);
+foreach ($migrationFiles as $migrationFile) {
+    $schema = file_get_contents($migrationFile);
+    check($schema !== false && $db->exec($schema) !== false, basename($migrationFile) . ' executes');
+}
 $columns = $db->query('PRAGMA table_info(messages)')->fetchAll(PDO::FETCH_COLUMN, 1);
 check($columns === ['id', 'author', 'content', 'ip_hash', 'created_at'], 'initial schema has expected columns');
+
+$subject = hash('sha256', 'test-subject');
+for ($attempt = 1; $attempt <= 4; $attempt++) {
+    check(
+        rate_limit_record_failure($db, 'admin-login', $subject, 5, 900, 900, 100) === 0,
+        "attempt {$attempt} remains below the login threshold"
+    );
+}
+check(
+    rate_limit_record_failure($db, 'admin-login', $subject, 5, 900, 900, 100) === 900,
+    'fifth failure starts the lockout'
+);
+$_SESSION = []; // A new cookie/session must not reset the database-backed limiter.
+check(rate_limit_retry_after($db, 'admin-login', $subject, 101) === 899, 'lockout survives session reset');
+rate_limit_clear($db, 'admin-login', $subject);
+check(rate_limit_retry_after($db, 'admin-login', $subject, 101) === 0, 'successful login clears failures');
+
+security_event($db, 'admin.login', 'failure', $subject, null, 100);
+check(
+    (int) $db->query('SELECT COUNT(*) FROM security_events')->fetchColumn() === 1,
+    'security event is persisted'
+);
+$pruned = prune_security_records($db, 100 + 91 * 86400);
+check($pruned['security_events'] === 1, 'expired security events are pruned');
 
 fwrite(STDOUT, "\n{$tests} tests, {$failures} failures\n");
 exit($failures === 0 ? 0 : 1);

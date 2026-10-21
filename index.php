@@ -30,8 +30,11 @@ if ($method === 'POST') {
     }
 
     if ($action === 'login') {
-        if (time() < ($_SESSION['login_lock_until'] ?? 0)) {
-            flash_set('error', 'Too many attempts. Please wait a minute.');
+        $loginSubject = client_ip_hash('admin-login');
+        $retryAfter = rate_limit_retry_after($pdo, 'admin-login', $loginSubject);
+        if ($retryAfter > 0) {
+            security_event($pdo, 'admin.login', 'blocked', $loginSubject);
+            flash_set('error', 'Too many attempts. Please try again later.');
             redirect('/');
         }
         $password = string_input($_POST, 'password');
@@ -41,26 +44,39 @@ if ($method === 'POST') {
             && $hash !== ''
             && password_verify($password, $hash);
         if ($ok) {
+            rate_limit_clear($pdo, 'admin-login', $loginSubject);
+            security_event($pdo, 'admin.login', 'success', $loginSubject);
             session_regenerate_id(true);
             $_SESSION['is_admin'] = true;
             $_SESSION['admin_authenticated_at'] = time();
             $_SESSION['admin_last_seen_at'] = time();
             $_SESSION['admin_session_rotated_at'] = time();
             csrf_rotate();
-            unset($_SESSION['login_fails'], $_SESSION['login_lock_until']);
             flash_set('success', 'Signed in as admin.');
         } else {
-            $_SESSION['login_fails'] = ($_SESSION['login_fails'] ?? 0) + 1;
-            if ($_SESSION['login_fails'] >= 5) {
-                $_SESSION['login_lock_until'] = time() + 60;
-                $_SESSION['login_fails']      = 0;
-            }
-            flash_set('error', 'Incorrect password.');
+            $retryAfter = rate_limit_record_failure(
+                $pdo,
+                'admin-login',
+                $loginSubject,
+                5,
+                900,
+                900
+            );
+            security_event(
+                $pdo,
+                'admin.login',
+                $retryAfter > 0 ? 'blocked' : 'failure',
+                $loginSubject
+            );
+            flash_set('error', $retryAfter > 0
+                ? 'Too many attempts. Please try again later.'
+                : 'Incorrect password.');
         }
         redirect('/');
     }
 
     if ($action === 'logout') {
+        security_event($pdo, 'admin.logout', 'success', client_ip_hash('admin-action'));
         $_SESSION = [];
         session_regenerate_id(true);
         csrf_rotate();
@@ -70,6 +86,7 @@ if ($method === 'POST') {
 
     if ($action === 'delete') {
         if (empty($_SESSION['is_admin'])) {
+            security_event($pdo, 'message.delete', 'blocked', client_ip_hash('admin-action'));
             flash_set('error', 'Not authorised.');
             redirect('/');
         }
@@ -81,8 +98,10 @@ if ($method === 'POST') {
             $stmt = $pdo->prepare('DELETE FROM messages WHERE id = :id');
             $stmt->bindValue(':id', $id, PDO::PARAM_INT);
             $stmt->execute();
+            security_event($pdo, 'message.delete', 'success', client_ip_hash('admin-action'), $id);
             flash_set('success', 'Message deleted.');
         } else {
+            security_event($pdo, 'message.delete', 'failure', client_ip_hash('admin-action'));
             flash_set('error', 'Invalid message id.');
         }
         redirect('/');

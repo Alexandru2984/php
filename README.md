@@ -38,6 +38,8 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
    user (`www-data`): `chown micu:www-data` + `chmod 2770` on the directory.
 3. Apply database migrations before switching a release live:
    `php scripts/migrate.php`.
+4. Run `php scripts/maintenance.php` daily to prune expired pseudonymous security
+   records and optimize SQLite.
 
 ## Verification
 

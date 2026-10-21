@@ -151,6 +151,162 @@ function client_ip_hash(string $purpose = 'posting'): string
     return hash_hmac('sha256', $purpose . "\0" . client_ip(), APP_SECRET);
 }
 
+/** Seconds remaining on a persistent limiter, or zero when the subject may try. */
+function rate_limit_retry_after(
+    PDO $pdo,
+    string $scope,
+    string $subjectHash,
+    ?int $now = null
+): int {
+    $now ??= time();
+    $stmt = $pdo->prepare(
+        'SELECT blocked_until FROM rate_limits WHERE scope = :scope AND subject_hash = :subject'
+    );
+    $stmt->execute([':scope' => $scope, ':subject' => $subjectHash]);
+    $blockedUntil = $stmt->fetchColumn();
+    return $blockedUntil === false ? 0 : max(0, (int) $blockedUntil - $now);
+}
+
+/**
+ * Record a failed action and return its lockout time. Lockouts grow exponentially
+ * for repeated windows and are capped at 24 hours.
+ */
+function rate_limit_record_failure(
+    PDO $pdo,
+    string $scope,
+    string $subjectHash,
+    int $limit,
+    int $windowSeconds,
+    int $baseBlockSeconds,
+    ?int $now = null
+): int {
+    if ($limit < 1 || $windowSeconds < 1 || $baseBlockSeconds < 1) {
+        throw new InvalidArgumentException('Rate-limit values must be positive');
+    }
+    $now ??= time();
+
+    $pdo->exec('BEGIN IMMEDIATE');
+    try {
+        $stmt = $pdo->prepare(
+            'SELECT window_started_at, attempts, penalty_level, blocked_until, updated_at
+             FROM rate_limits WHERE scope = :scope AND subject_hash = :subject'
+        );
+        $stmt->execute([':scope' => $scope, ':subject' => $subjectHash]);
+        $row = $stmt->fetch();
+
+        if ($row === false) {
+            $windowStartedAt = $now;
+            $attempts = 0;
+            $penaltyLevel = 0;
+            $blockedUntil = 0;
+        } else {
+            $windowStartedAt = (int) $row['window_started_at'];
+            $attempts = (int) $row['attempts'];
+            $penaltyLevel = (int) $row['penalty_level'];
+            $blockedUntil = (int) $row['blocked_until'];
+
+            if ($now - (int) $row['updated_at'] > 86400) {
+                $penaltyLevel = 0;
+            }
+            if ($now - $windowStartedAt >= $windowSeconds) {
+                $windowStartedAt = $now;
+                $attempts = 0;
+            }
+        }
+
+        if ($blockedUntil > $now) {
+            $pdo->exec('COMMIT');
+            return $blockedUntil - $now;
+        }
+
+        $attempts++;
+        if ($attempts >= $limit) {
+            $penaltyLevel = min(8, $penaltyLevel + 1);
+            $blockSeconds = min(86400, $baseBlockSeconds * (2 ** ($penaltyLevel - 1)));
+            $blockedUntil = $now + $blockSeconds;
+        } else {
+            $blockedUntil = 0;
+        }
+
+        $upsert = $pdo->prepare(
+            'INSERT INTO rate_limits
+                (scope, subject_hash, window_started_at, attempts, penalty_level, blocked_until, updated_at)
+             VALUES (:scope, :subject, :window, :attempts, :penalty, :blocked, :updated)
+             ON CONFLICT(scope, subject_hash) DO UPDATE SET
+                window_started_at = excluded.window_started_at,
+                attempts = excluded.attempts,
+                penalty_level = excluded.penalty_level,
+                blocked_until = excluded.blocked_until,
+                updated_at = excluded.updated_at'
+        );
+        $upsert->execute([
+            ':scope' => $scope,
+            ':subject' => $subjectHash,
+            ':window' => $windowStartedAt,
+            ':attempts' => $attempts,
+            ':penalty' => $penaltyLevel,
+            ':blocked' => $blockedUntil,
+            ':updated' => $now,
+        ]);
+        $pdo->exec('COMMIT');
+        return max(0, $blockedUntil - $now);
+    } catch (Throwable $e) {
+        try {
+            $pdo->exec('ROLLBACK');
+        } catch (Throwable) {
+            // Preserve the original exception.
+        }
+        throw $e;
+    }
+}
+
+/** A successful authentication clears accumulated failures for that subject. */
+function rate_limit_clear(PDO $pdo, string $scope, string $subjectHash): void
+{
+    $stmt = $pdo->prepare(
+        'DELETE FROM rate_limits WHERE scope = :scope AND subject_hash = :subject'
+    );
+    $stmt->execute([':scope' => $scope, ':subject' => $subjectHash]);
+}
+
+/** Record a minimal, non-secret security event for detection and audit. */
+function security_event(
+    PDO $pdo,
+    string $eventType,
+    string $outcome,
+    ?string $subjectHash = null,
+    ?int $relatedId = null,
+    ?int $now = null
+): void {
+    if (preg_match('/\A[a-z][a-z0-9_.-]{1,63}\z/D', $eventType) !== 1
+        || !in_array($outcome, ['success', 'failure', 'blocked'], true)) {
+        throw new InvalidArgumentException('Invalid security event');
+    }
+    $stmt = $pdo->prepare(
+        'INSERT INTO security_events
+            (event_type, outcome, subject_hash, related_id, created_at)
+         VALUES (:event, :outcome, :subject, :related, :created)'
+    );
+    $stmt->execute([
+        ':event' => $eventType,
+        ':outcome' => $outcome,
+        ':subject' => $subjectHash,
+        ':related' => $relatedId,
+        ':created' => $now ?? time(),
+    ]);
+}
+
+/** Bound pseudonymous limiter/event retention; intended for scheduled maintenance. */
+function prune_security_records(PDO $pdo, ?int $now = null): array
+{
+    $now ??= time();
+    $limits = $pdo->prepare('DELETE FROM rate_limits WHERE updated_at < :cutoff');
+    $limits->execute([':cutoff' => $now - 7 * 86400]);
+    $events = $pdo->prepare('DELETE FROM security_events WHERE created_at < :cutoff');
+    $events->execute([':cutoff' => $now - 90 * 86400]);
+    return ['rate_limits' => $limits->rowCount(), 'security_events' => $events->rowCount()];
+}
+
 /**
  * Rate-limit a client. Returns null if allowed, or an error string if blocked.
  * Combines a per-session cooldown with a per-IP hourly cap.

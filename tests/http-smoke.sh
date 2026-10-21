@@ -27,9 +27,8 @@ set -e
 
 export APP_ENV=testing
 export APP_SECRET=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-# Dollar signs are literal password-hash delimiters, not shell expansions.
-# shellcheck disable=SC2016
-export ADMIN_PASSWORD_HASH='$2y$12$KbQi1BY9j8eFBdQgY3cGRO5j0frJOkp1n5b6Ho.u8BqnIgHZQto7S'
+ADMIN_PASSWORD_HASH="$(php -r 'echo password_hash("smoke-test-password", PASSWORD_BCRYPT, ["cost" => 4]);')"
+export ADMIN_PASSWORD_HASH
 export APP_ORIGIN="http://127.0.0.1:${port}"
 export APP_STORAGE_DIR="${tmp_dir}/storage"
 mkdir -p "${APP_STORAGE_DIR}"
@@ -81,5 +80,37 @@ post_code="$(request_code \
 [[ "${post_code}" == 303 ]]
 
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" 'SELECT COUNT(*) FROM messages;')" == 1 ]]
+
+login_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/")"
+login_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${login_html}" | head -n 1)"
+[[ "${login_csrf}" =~ ^[0-9a-f]{64}$ ]]
+
+wrong_login_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --cookie-jar "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${login_csrf}" \
+    --data-urlencode 'action=login' \
+    --data-urlencode 'password=wrong' \
+    "${APP_ORIGIN}/")"
+[[ "${wrong_login_code}" == 303 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT attempts FROM rate_limits WHERE scope = 'admin-login';")" == 1 ]]
+
+login_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/")"
+login_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${login_html}" | head -n 1)"
+good_login_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --cookie-jar "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${login_csrf}" \
+    --data-urlencode 'action=login' \
+    --data-urlencode 'password=smoke-test-password' \
+    "${APP_ORIGIN}/")"
+[[ "${good_login_code}" == 303 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM rate_limits WHERE scope = 'admin-login';")" == 0 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM security_events WHERE event_type = 'admin.login';")" == 2 ]]
+
+admin_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
+grep --quiet 'Sign out' <<<"${admin_html}"
 
 echo 'HTTP smoke tests passed.'
