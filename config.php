@@ -101,6 +101,13 @@ if ($__appEnv === 'production' && ($__originParts['scheme'] ?? '') !== 'https') 
 }
 define('APP_ORIGIN', $__origin);
 
+$__analyticsId = (string) env('ANALYTICS_WEBSITE_ID', '');
+if ($__analyticsId !== ''
+    && preg_match('/\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/iD', $__analyticsId) !== 1) {
+    configuration_error('ANALYTICS_WEBSITE_ID must be a UUID or empty');
+}
+define('ANALYTICS_WEBSITE_ID', strtolower($__analyticsId));
+
 // The database must stay outside the document root. APP_STORAGE_DIR exists for
 // isolated tests and immutable deployments; production normally uses the default.
 $__storageDir = rtrim((string) env('APP_STORAGE_DIR', dirname(APP_ROOT) . '/php_micutu_app_storage'), '/');
@@ -201,6 +208,7 @@ unset(
     $__hashCost,
     $__origin,
     $__originParts,
+    $__analyticsId,
     $__secureCookie,
     $__storageDir,
     $__normalizedStorage,

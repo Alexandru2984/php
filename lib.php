@@ -101,6 +101,17 @@ function positive_int_input(array $source, string $key, int $default = 1): int
     return (int) $value;
 }
 
+/** Parse a positive database identifier, returning null for malformed input. */
+function id_input(array $source, string $key): ?int
+{
+    $value = string_input($source, $key);
+    if ($value === null || preg_match('/\A[1-9][0-9]{0,18}\z/D', $value) !== 1) {
+        return null;
+    }
+    $parsed = filter_var($value, FILTER_VALIDATE_INT);
+    return $parsed === false ? null : $parsed;
+}
+
 /** Additional same-origin defence for state-changing browser requests. */
 function same_origin_request(): bool
 {
@@ -304,7 +315,18 @@ function prune_security_records(PDO $pdo, ?int $now = null): array
     $limits->execute([':cutoff' => $now - 7 * 86400]);
     $events = $pdo->prepare('DELETE FROM security_events WHERE created_at < :cutoff');
     $events->execute([':cutoff' => $now - 90 * 86400]);
-    return ['rate_limits' => $limits->rowCount(), 'security_events' => $events->rowCount()];
+    // Posting limits only need a one-hour identifier. Keep a 24-hour margin for
+    // troubleshooting, then irreversibly detach the keyed identifier from content.
+    $identifiers = $pdo->prepare(
+        "UPDATE messages SET ip_hash = NULL
+         WHERE ip_hash IS NOT NULL AND created_at < datetime(:cutoff, 'unixepoch')"
+    );
+    $identifiers->execute([':cutoff' => $now - 86400]);
+    return [
+        'rate_limits' => $limits->rowCount(),
+        'security_events' => $events->rowCount(),
+        'message_identifiers' => $identifiers->rowCount(),
+    ];
 }
 
 /**
@@ -410,6 +432,7 @@ function icon(string $name, string $class = ''): string
         'check'   => '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
         'alert'   => '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
         'search'  => '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+        'restore' => '<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-9.36L1 10"/>',
     ];
     $body = $paths[$name] ?? '';
     $cls  = $class !== '' ? ' class="' . e($class) . '"' : '';

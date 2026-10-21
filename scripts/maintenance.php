@@ -18,8 +18,9 @@ $pdo->exec('PRAGMA optimize');
 fwrite(
     STDOUT,
     sprintf(
-        "Maintenance complete: %d rate limits and %d security events pruned.\n",
+        "Maintenance complete: %d rate limits, %d security events, and %d message identifiers pruned.\n",
         $deleted['rate_limits'],
-        $deleted['security_events']
+        $deleted['security_events'],
+        $deleted['message_identifiers']
     )
 );

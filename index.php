@@ -90,20 +90,64 @@ if ($method === 'POST') {
             flash_set('error', 'Not authorised.');
             redirect('/');
         }
-        $rawId = string_input($_POST, 'id');
-        $id = $rawId !== null && preg_match('/\A[1-9][0-9]{0,18}\z/D', $rawId) === 1
-            ? filter_var($rawId, FILTER_VALIDATE_INT)
-            : false;
-        if ($id !== false && $id !== null) {
-            $stmt = $pdo->prepare('DELETE FROM messages WHERE id = :id');
+        $id = id_input($_POST, 'id');
+        if ($id !== null) {
+            $stmt = $pdo->prepare(
+                "UPDATE messages
+                 SET status = 'deleted', deleted_at = CURRENT_TIMESTAMP, ip_hash = NULL
+                 WHERE id = :id AND status = 'published'"
+            );
             $stmt->bindValue(':id', $id, PDO::PARAM_INT);
             $stmt->execute();
-            security_event($pdo, 'message.delete', 'success', client_ip_hash('admin-action'), $id);
-            flash_set('success', 'Message deleted.');
+            $changed = $stmt->rowCount() === 1;
+            security_event(
+                $pdo,
+                'message.delete',
+                $changed ? 'success' : 'failure',
+                client_ip_hash('admin-action'),
+                $id
+            );
+            flash_set($changed ? 'success' : 'error', $changed
+                ? 'Message moved to moderation trash.'
+                : 'Message was not found or was already deleted.');
         } else {
             security_event($pdo, 'message.delete', 'failure', client_ip_hash('admin-action'));
             flash_set('error', 'Invalid message id.');
         }
+        redirect('/');
+    }
+
+    if ($action === 'restore') {
+        if (empty($_SESSION['is_admin'])) {
+            security_event($pdo, 'message.restore', 'blocked', client_ip_hash('admin-action'));
+            flash_set('error', 'Not authorised.');
+            redirect('/');
+        }
+        $id = id_input($_POST, 'id');
+        if ($id === null) {
+            security_event($pdo, 'message.restore', 'failure', client_ip_hash('admin-action'));
+            flash_set('error', 'Invalid message id.');
+            redirect('/');
+        }
+
+        $stmt = $pdo->prepare(
+            "UPDATE messages
+             SET status = 'published', deleted_at = NULL
+             WHERE id = :id AND status = 'deleted'"
+        );
+        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
+        $stmt->execute();
+        $changed = $stmt->rowCount() === 1;
+        security_event(
+            $pdo,
+            'message.restore',
+            $changed ? 'success' : 'failure',
+            client_ip_hash('admin-action'),
+            $id
+        );
+        flash_set($changed ? 'success' : 'error', $changed
+            ? 'Message restored.'
+            : 'Message was not found or is already published.');
         redirect('/');
     }
 
@@ -155,12 +199,13 @@ if ($rawQuery === null && array_key_exists('q', $_GET)) {
     abort_response(400, 'Invalid query.');
 }
 $q      = mb_substr(trim($rawQuery ?? ''), 0, 100);
-$where  = '';
-$params = [];
+$whereParts = ["status = :status"];
+$params = [':status' => 'published'];
 if ($q !== '') {
-    $where          = "WHERE author LIKE :q ESCAPE '\\' OR content LIKE :q ESCAPE '\\'";
+    $whereParts[]   = "(author LIKE :q ESCAPE '\\' OR content LIKE :q ESCAPE '\\')";
     $params[':q']   = '%' . addcslashes($q, '%_\\') . '%';
 }
+$where = 'WHERE ' . implode(' AND ', $whereParts);
 
 $countStmt = $pdo->prepare("SELECT COUNT(*) FROM messages $where");
 $countStmt->execute($params);
@@ -184,6 +229,24 @@ $stmt->bindValue(':lim', $perPage, PDO::PARAM_INT);
 $stmt->bindValue(':off', $offset, PDO::PARAM_INT);
 $stmt->execute();
 $messages = $stmt->fetchAll();
+
+$deletedMessages = [];
+$securityEvents = [];
+$deletedTotal = 0;
+if ($isAdmin) {
+    $deletedTotal = (int) $pdo->query(
+        "SELECT COUNT(*) FROM messages WHERE status = 'deleted'"
+    )->fetchColumn();
+    $deletedMessages = $pdo->query(
+        "SELECT id, author, content, created_at, deleted_at
+         FROM messages WHERE status = 'deleted'
+         ORDER BY deleted_at DESC, id DESC LIMIT 20"
+    )->fetchAll();
+    $securityEvents = $pdo->query(
+        "SELECT event_type, outcome, related_id, created_at
+         FROM security_events ORDER BY id DESC LIMIT 20"
+    )->fetchAll();
+}
 
 // ---------------------------------------------------------------------------
 // Read-only JSON API: /?format=json[&q=...&page=N]
@@ -232,7 +295,9 @@ $flash = flash_get();
     <link rel="stylesheet" href="<?php echo e(asset('assets/style.css')); ?>">
     <script src="<?php echo e(asset('assets/theme-init.js')); ?>"></script>
     <script defer src="<?php echo e(asset('assets/app.js')); ?>"></script>
-    <script defer src="https://analytics.micutu.com/script.js" data-website-id="c4e3a772-26b3-47e7-afec-b82097684551"></script>
+    <?php if (ANALYTICS_WEBSITE_ID !== ''): ?>
+    <script defer src="https://analytics.micutu.com/script.js" data-website-id="<?php echo e(ANALYTICS_WEBSITE_ID); ?>"></script>
+    <?php endif; ?>
 </head>
 <body>
     <main class="app">
@@ -361,6 +426,61 @@ $flash = flash_get();
             <?php endif; ?>
         </section>
 
+        <?php if ($isAdmin): ?>
+        <section class="moderation" aria-labelledby="moderation-title">
+            <div class="moderation-head">
+                <div>
+                    <p class="eyebrow">Admin workspace</p>
+                    <h2 id="moderation-title">Moderation &amp; audit</h2>
+                </div>
+                <span class="badge"><?php echo $deletedTotal; ?> in trash</span>
+            </div>
+
+            <details class="admin-panel"<?php echo $deletedTotal > 0 ? ' open' : ''; ?>>
+                <summary>Recently deleted messages</summary>
+                <?php if ($deletedMessages): ?>
+                    <div class="moderation-list">
+                    <?php foreach ($deletedMessages as $deleted): ?>
+                        <article class="moderation-item">
+                            <div>
+                                <strong><?php echo e($deleted['author'] ?: 'Anonymous'); ?></strong>
+                                <span>#<?php echo (int) $deleted['id']; ?> · deleted <?php echo e(time_ago((string) $deleted['deleted_at'])); ?></span>
+                            </div>
+                            <p><?php echo e($deleted['content']); ?></p>
+                            <form method="POST">
+                                <?php echo csrf_field(); ?>
+                                <input type="hidden" name="action" value="restore">
+                                <input type="hidden" name="id" value="<?php echo (int) $deleted['id']; ?>">
+                                <button class="btn secondary compact" type="submit"><?php echo icon('restore'); ?> Restore</button>
+                            </form>
+                        </article>
+                    <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <p class="panel-empty">Moderation trash is empty.</p>
+                <?php endif; ?>
+            </details>
+
+            <details class="admin-panel">
+                <summary>Recent security events</summary>
+                <?php if ($securityEvents): ?>
+                    <ol class="audit-list">
+                    <?php foreach ($securityEvents as $event): ?>
+                        <li>
+                            <span class="audit-outcome <?php echo e($event['outcome']); ?>"><?php echo e($event['outcome']); ?></span>
+                            <code><?php echo e($event['event_type']); ?></code>
+                            <?php if ($event['related_id'] !== null): ?><span>#<?php echo (int) $event['related_id']; ?></span><?php endif; ?>
+                            <time datetime="<?php echo e(gmdate('c', (int) $event['created_at'])); ?>"><?php echo e(time_ago('@' . $event['created_at'])); ?></time>
+                        </li>
+                    <?php endforeach; ?>
+                    </ol>
+                <?php else: ?>
+                    <p class="panel-empty">No security events recorded yet.</p>
+                <?php endif; ?>
+            </details>
+        </section>
+        <?php endif; ?>
+
         <?php if (!$isAdmin): ?>
         <details class="admin">
             <summary>Admin</summary>
@@ -373,6 +493,16 @@ $flash = flash_get();
             </form>
         </details>
         <?php endif; ?>
+
+        <details class="privacy">
+            <summary>Privacy &amp; data use</summary>
+            <p>Messages and names are public. A keyed, non-reversible network identifier is used for abuse prevention and detached from messages after 24 hours. Security events are retained for up to 90 days.</p>
+            <?php if (ANALYTICS_WEBSITE_ID !== ''): ?>
+            <p>This deployment also loads first-party analytics from <code>analytics.micutu.com</code>.</p>
+            <?php else: ?>
+            <p>Optional analytics is disabled on this deployment.</p>
+            <?php endif; ?>
+        </details>
     </main>
 </body>
 </html>

@@ -113,4 +113,29 @@ good_login_code="$(request_code \
 admin_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
 grep --quiet 'Sign out' <<<"${admin_html}"
 
+admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
+message_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT id FROM messages WHERE status = 'published' LIMIT 1;")"
+delete_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${admin_csrf}" \
+    --data-urlencode 'action=delete' \
+    --data-urlencode "id=${message_id}" \
+    "${APP_ORIGIN}/")"
+[[ "${delete_code}" == 303 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status || ':' || (ip_hash IS NULL) FROM messages WHERE id = ${message_id};")" == deleted:1 ]]
+
+admin_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
+admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
+grep --quiet 'Recently deleted messages' <<<"${admin_html}"
+restore_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${admin_csrf}" \
+    --data-urlencode 'action=restore' \
+    --data-urlencode "id=${message_id}" \
+    "${APP_ORIGIN}/")"
+[[ "${restore_code}" == 303 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status FROM messages WHERE id = ${message_id};")" == published ]]
+
 echo 'HTTP smoke tests passed.'

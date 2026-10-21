@@ -91,7 +91,10 @@ foreach ($migrationFiles as $migrationFile) {
     check($schema !== false && $db->exec($schema) !== false, basename($migrationFile) . ' executes');
 }
 $columns = $db->query('PRAGMA table_info(messages)')->fetchAll(PDO::FETCH_COLUMN, 1);
-check($columns === ['id', 'author', 'content', 'ip_hash', 'created_at'], 'initial schema has expected columns');
+check(
+    $columns === ['id', 'author', 'content', 'ip_hash', 'created_at', 'status', 'deleted_at'],
+    'migrated schema has expected columns'
+);
 
 $subject = hash('sha256', 'test-subject');
 for ($attempt = 1; $attempt <= 4; $attempt++) {
@@ -114,8 +117,13 @@ check(
     (int) $db->query('SELECT COUNT(*) FROM security_events')->fetchColumn() === 1,
     'security event is persisted'
 );
+$db->exec(
+    "INSERT INTO messages (author, content, ip_hash, created_at)
+     VALUES ('Alice', 'old', 'pseudonymous', '1970-01-01 00:00:00')"
+);
 $pruned = prune_security_records($db, 100 + 91 * 86400);
 check($pruned['security_events'] === 1, 'expired security events are pruned');
+check($pruned['message_identifiers'] === 1, 'old message identifier is detached');
 
 fwrite(STDOUT, "\n{$tests} tests, {$failures} failures\n");
 exit($failures === 0 ? 0 : 1);
