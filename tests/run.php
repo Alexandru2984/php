@@ -17,6 +17,7 @@ $_POST = [];
 $_SERVER = [];
 
 require dirname(__DIR__) . '/lib.php';
+require dirname(__DIR__) . '/api.php';
 
 $tests = 0;
 $failures = 0;
@@ -213,6 +214,50 @@ try {
     $appendOnly = true;
 }
 check($appendOnly, 'admin audit events cannot be deleted');
+$db->exec(
+    "INSERT INTO messages (author, content, created_at)
+     VALUES ('API first', 'first page fixture', '2030-01-01 00:00:00'),
+            ('API second', 'second page fixture', '2030-01-01 00:00:00')"
+);
+$db->exec(
+    "INSERT INTO messages (author, content, created_at, status)
+     VALUES ('API hidden', 'must never leak', '2031-01-01 00:00:00', 'hidden')"
+);
+$apiPageOne = api_list_messages($db, 1);
+check(
+    count($apiPageOne['data']) === 1
+        && $apiPageOne['data'][0]['author'] === 'API second'
+        && $apiPageOne['pagination']['has_more'] === true
+        && is_string($apiPageOne['pagination']['next_cursor']),
+    'API page is bounded, ordered and exposes a next cursor'
+);
+$decodedCursor = api_cursor_decode($apiPageOne['pagination']['next_cursor']);
+check(
+    $decodedCursor['created_at'] === '2030-01-01 00:00:00'
+        && is_int($decodedCursor['id']),
+    'API cursor round-trips its stable ordering key'
+);
+$apiPageTwo = api_list_messages($db, 1, $decodedCursor);
+check(
+    count($apiPageTwo['data']) === 1
+        && $apiPageTwo['data'][0]['author'] === 'API first'
+        && !str_contains(json_encode($apiPageTwo), 'must never leak'),
+    'API cursor advances without exposing moderated messages'
+);
+$cursorParts = explode('.', $apiPageOne['pagination']['next_cursor'], 2);
+$cursorParts[1][0] = $cursorParts[1][0] === 'A' ? 'B' : 'A';
+$tamperedCursorRejected = false;
+try {
+    api_cursor_decode(implode('.', $cursorParts));
+} catch (InvalidArgumentException) {
+    $tamperedCursorRejected = true;
+}
+check($tamperedCursorRejected, 'tampered API cursor is rejected');
+check(
+    api_etag_matches('"older", W/"current"', '"current"'),
+    'If-None-Match accepts a weak match from a bounded tag list'
+);
+check(!api_etag_matches('"older"', '"current"'), 'non-matching ETag is rejected');
 $db->exec(
     "INSERT INTO messages (author, content, ip_hash, created_at)
      VALUES ('Alice', 'old', 'pseudonymous', '1970-01-01 00:00:00')"
