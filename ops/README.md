@@ -30,7 +30,9 @@ that, fix the deployment process and keep runtime writes in storage.
 4. Install the FPM template, run `php-fpm8.5 -tt`, start the pool and confirm its
    socket identity/mode.
 5. Apply migrations against a restored disposable copy, snapshot production, apply
-   production migrations, and atomically repoint `current` to the tested release.
+   production migrations with `APP_STORAGE_DIR` explicitly set, and atomically
+   repoint `current` to the tested release. Release-directory auto-detection must not
+   be used for the shared database path.
 6. Install the nginx template, run `nginx -t`, reload, and probe HTML, API, protected
    paths, unsupported methods, direct-origin denial and CSP in a browser.
 7. Install/enable the systemd units only after `systemd-analyze security` and manual
