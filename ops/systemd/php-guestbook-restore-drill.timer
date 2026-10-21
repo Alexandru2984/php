@@ -1,0 +1,12 @@
+[Unit]
+Description=Verify a PHP guestbook production snapshot every week
+
+[Timer]
+OnCalendar=Sun *-*-* 04:15:00 UTC
+AccuracySec=1min
+RandomizedDelaySec=15min
+Persistent=true
+Unit=php-guestbook-restore-drill.service
+
+[Install]
+WantedBy=timers.target

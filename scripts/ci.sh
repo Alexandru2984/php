@@ -19,6 +19,7 @@ php tests/run.php
 php tests/openapi-smoke.php
 bash tests/http-smoke.sh
 bash tests/backup-smoke.sh
+bash tests/restore-drill-smoke.sh
 bash tests/healthcheck-smoke.sh
 bash tests/ops-smoke.sh
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then

@@ -8,7 +8,7 @@
 3. Run the health probe manually as `php-guestbook`. Do not paste database rows,
    configuration or visitor-controlled log lines into chat.
 4. Verify SQLite integrity, current release target, file ownership, newest backup age,
-   nginx/FPM status and direct-origin denial.
+   last restore-drill age, nginx/FPM status and direct-origin denial.
 
 ## Containment
 
@@ -30,6 +30,8 @@ Preserve relevant journal ranges, nginx/Cloudflare event timestamps, release SHA
 database integrity output, backup filename/hash and security-event aggregates. Do not
 export message bodies unless incident scope requires it. Restore into a disposable
 path first, validate integrity/data count, and use the documented atomic rollout.
+Follow [`RECOVERY_DRILL.md`](RECOVERY_DRILL.md); the automated drill never authorizes
+overwriting production.
 
 After recovery, run the full CI suite, public/protected-path probes and a manual
 one-shot backup. A successful watched service emits a single resolved notification

@@ -17,7 +17,7 @@ criteria.
   a sessionless versioned read API, signed cursor pagination, strong ETags and
   OpenAPI; responsive/accessibility foundations from Stage 6; pinned CI,
   `security.txt` and hardened systemd jobs from Stage 8.
-- **Next priority:** off-host encrypted backup plus a production-snapshot restore
+- **Next priority:** encrypted copies to two off-host providers plus a human recovery
   drill, an incident-response tabletop, browser accessibility checks, SQLite FTS5
   search, retention/export/erasure operations, a dedicated API edge limit and
   risk-scored submission heuristics that queue rather than delete content.
@@ -158,8 +158,9 @@ for users/moderators to reverse mistakes.
 - Add `/health/live` and protected readiness/diagnostic checks that reveal no secrets.
 - Add structured logs and metrics for latency, status, SQLite busy time, queue size,
   login failures, moderation and backups; alert on symptoms, not raw log existence.
-- Version the hardened backup script/systemd units; keep daily local snapshots plus an
-  encrypted off-host copy and quarterly restore drill.
+- Version the hardened backup script/systemd units; keep daily local snapshots,
+  weekly automated restore verification, an encrypted off-host copy and quarterly
+  human recovery drill.
 - Add GitHub CI: PHP syntax/tests, ShellCheck, HTML/CSS/JS checks, secret scanning,
   SAST, dependency review when dependencies appear, browser/a11y smoke tests.
 - Add branch protection, signed/tagged releases, change log, deploy approval and

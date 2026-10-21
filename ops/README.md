@@ -64,9 +64,12 @@ tested down migration; never restore over the live database while PHP-FPM is wri
 
 The tracked backup script uses SQLite's online `.backup`, validates integrity,
 compresses atomically, applies mode `0600`, serializes overlapping runs and keeps 14
-days by default. `tests/backup-smoke.sh` proves a disposable restore. Production still
-needs an encrypted off-host copy, a defined RPO/RTO, monitoring for backup age/failure,
-and a scheduled restore drill.
+days by default. The weekly sandboxed restore drill independently decompresses the
+newest production snapshot, verifies SQLite integrity/foreign keys and compiles reads
+against the current schema. Its status becomes unhealthy after eight days. The
+engineering targets are a 24-hour RPO and two-hour RTO; production still needs an
+encrypted off-host copy and owner acceptance of those targets. Full recovery and key
+separation are documented in [`docs/RECOVERY_DRILL.md`](../docs/RECOVERY_DRILL.md).
 
 ## Monitoring and Telegram pager
 
@@ -83,11 +86,14 @@ live:
 sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-health.service /etc/systemd/system/
 sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-health.timer /etc/systemd/system/
 sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-backup.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-restore-drill.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-restore-drill.timer /etc/systemd/system/
 sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-maintenance.service /etc/systemd/system/
-sudo systemd-analyze verify /etc/systemd/system/php-guestbook-{health,backup,maintenance}.service
+sudo systemd-analyze verify /etc/systemd/system/php-guestbook-{health,backup,restore-drill,maintenance}.service
 sudo systemctl daemon-reload
+sudo systemctl start php-guestbook-restore-drill.service
 sudo systemctl start php-guestbook-health.service
-sudo systemctl enable --now php-guestbook-health.timer
+sudo systemctl enable --now php-guestbook-health.timer php-guestbook-restore-drill.timer
 ```
 
 The manual health run must report a single privacy-minimal `ok` line. Inspect its

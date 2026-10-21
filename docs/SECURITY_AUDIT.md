@@ -30,12 +30,13 @@ browser/accessibility automation remain incomplete.
 - Public probes returned `200` for HTML, JSON, RSS, CSS and `security.txt`; sensitive
   paths and path-info returned `404`, unsupported methods returned `405`, and direct
   access through the VPS public address returned `403`.
-- Manual one-shot backup and maintenance jobs succeeded under their sandboxed service
-  identity. Both daily timers are enabled; restored disposable backups pass the test
-  suite. The systemd exposure score was `2.9 OK` for both services.
-- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 58 unit
-  tests, HTTP integration, moderation lifecycle, health alerting and a compressed
-  backup/restore smoke test.
+- Manual one-shot backup, isolated restore and maintenance jobs succeeded under their
+  sandboxed service identity. Daily jobs and the weekly restore timer are enabled;
+  restored disposable backups pass integrity, foreign-key, migration and schema
+  checks. The restore unit's systemd exposure score was `0.8 SAFE` at rollout.
+- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 64 unit
+  tests, HTTP integration, moderation lifecycle, health alerting and compressed
+  backup/restore rejection tests.
 
 ## Findings
 
@@ -53,7 +54,7 @@ browser/accessibility automation remain incomplete.
 | S-10 | Medium | Cloudflare JavaScript Detection conflicts with CSP. | The live edge injects an inline challenge script while `script-src` disallows inline code. Browsers will block it, reducing bot signal quality. | Keep `unsafe-inline` forbidden. Use a per-response CSP nonce that Cloudflare can propagate, or intentionally disable injection for this hostname. |
 | S-11 | Medium | Core identifier retention is defined; full data-subject workflow remains. | Message identifiers detach after 24 hours, rate limits expire after seven days, security/closed reports after 90 days, and the public notice explains processing. Export/erasure operations and key-rotation procedure are not complete. | Add authenticated export/erasure commands, record legal basis and test purpose-key rotation. |
 | S-12 | Low | Reversible moderation and audit are deployed; purge policy remains deferred. | Five states, controlled reasons, a report queue, atomic transitions and trigger-protected append-only audit remove immediate-deletion and repudiation risk. Permanent purge and bulk actions are intentionally absent. | Define purge authorization/retention before adding permanent deletion; keep public reports non-automatic. |
-| S-13 | Medium | Local backup automation matches the repository; off-host resilience is absent. | Hardened versioned scripts/timers, age alerts and disposable restores pass, including a production-snapshot migration drill. A host/storage loss can still remove both live data and local backups. | Add an encrypted off-host copy, key recovery procedure and scheduled off-host restore drill. |
+| S-13 | Medium | Local recovery is continuously verified; off-host resilience is absent. | Hardened daily snapshots, age alerts and a weekly networkless production-snapshot restore drill now pass and page on failure. A host/storage loss can still remove the live data, markers and every local backup. | Upload independently encrypted artifacts to two approved providers, escrow recovery keys away from the VPS and execute a quarterly downloaded-artifact drill. |
 | S-14 | Low | API v1 is stateless and cache-consistent; the legacy JSON shape remains temporarily. | `/api/v1/messages` creates no session/cookie, exposes published columns only, uses signed indexed cursors, strong ETags and explicit public cache semantics. The old query-format feed is private/no-store and marked deprecated. | Migrate remaining consumers, measure usage, then remove the legacy JSON format in a separately announced release. |
 | S-15 | Medium | Self-hosted analytics expands the script trust boundary. | The CSP permits the VPS-hosted analytics origin to execute scripts. The tracker is domain-bound, DNT-aware and excludes query/hash, and the public notice exists; origin compromise still becomes same-page script execution. | Pin/review upgrades, document retention/processor basis and consider serving a verified local tracker asset. |
 | S-16 | Low | Application method and canonical-path handling relies on the edge. | Unsupported methods are rejected live by nginx/Cloudflare, but the PHP controller treats every non-POST method as a read; `/index.php/...` also renders successfully. | Enforce `GET`, `HEAD`, and `POST` in PHP, reject path-info, and add canonical redirects/tests. |
@@ -108,7 +109,7 @@ magnitude` for credential takeover, cross-vhost compromise and data loss.
 ### Detection
 
 - Current MTTD after the monitoring rollout: about five minutes for public health,
-  permission/release drift, SQLite integrity, backup age, disk pressure and five admin
+  permission/release drift, SQLite integrity, backup/restore age, disk pressure and five admin
   failures in 15 minutes and ten open abuse reports. Watched systemd failures dispatch
   immediately. The existing Cloudflare bot checks traffic spikes and edge 5xx
   responses every five minutes.

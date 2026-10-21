@@ -9,6 +9,7 @@ browser ──page/performance──> self-hosted Umami
 
 systemd timer ──5 minutes──> guestbook health probe
 backup timer ───────────────> backup service          ┐
+restore timer ──────────────> isolated restore drill  │
 maintenance timer ─────────> retention service       ├─failure/recovery─> host pager ─> Telegram
                                                      ┘
 ```
@@ -27,6 +28,8 @@ The guestbook probe checks:
 - SQLite `quick_check`, the minimum migration count, recent admin-login failures and
   the privacy-minimal count of open abuse reports;
 - compressed backup integrity and maximum backup age of 30 hours;
+- a validated restore marker no older than eight days, produced only after an
+  isolated SQLite integrity, foreign-key, migration and schema-contract drill;
 - exact owner/group/mode for configuration, storage, database, sessions and backups;
 - an atomic `current` symlink whose target is inside `releases` and not writable by
   the runtime identity;
@@ -41,10 +44,11 @@ The guestbook probe checks:
 | Admin authentication abuse | 5 failed/blocked attempts in 15 minutes | Next five-minute probe |
 | Unreviewed abuse-report backlog | 10 open reports | Next five-minute probe |
 | Backup missing, invalid or old | Older than 30 hours | Next five-minute probe |
+| Restore drill failed or stopped | Failed job or marker older than 8 days | Immediate dispatch or next five-minute probe |
 | Permission or immutable-release drift | Any mismatch | Next five-minute probe |
 | Disk pressure | 90% used | Next five-minute probe |
 | Edge 5xx or traffic spike | Existing Cloudflare bot policy | About 5 minutes |
-| Backup/maintenance process failure | Non-zero systemd result | Immediate systemd dispatch |
+| Backup/restore/maintenance process failure | Non-zero systemd result | Immediate systemd dispatch |
 
 The same incident fingerprint is throttled by the host pager. A different failure is
 sent immediately. Recovery generates one resolved notification only when a matching
@@ -113,6 +117,7 @@ repository.
 
 CI runs the health probe against a disposable HTTP server, migrated SQLite database
 and real compressed backup. It proves healthy behaviour plus login-abuse, stale-backup
-and writable-release failures. The operations smoke test verifies critical systemd
-hardening/alert directives and rejects Telegram credentials or direct Bot API
-integration anywhere in tracked operational/application sources.
+stale-restore and writable-release failures. A separate restore suite proves a valid
+recovery plus corrupt and stale snapshot rejection. The operations smoke test verifies
+critical systemd hardening/alert directives and rejects Telegram credentials or
+direct Bot API integration anywhere in tracked operational/application sources.
