@@ -18,6 +18,12 @@ function e(?string $s): string
     return htmlspecialchars($s ?? '', ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+/** XML text/attribute escaping for RSS output. */
+function xml_e(?string $s): string
+{
+    return htmlspecialchars($s ?? '', ENT_QUOTES | ENT_SUBSTITUTE | ENT_XML1, 'UTF-8');
+}
+
 /** Return the current CSRF token, creating one for the session if needed. */
 function csrf_token(): string
 {
@@ -64,6 +70,25 @@ function flash_get(): ?array
     $f = $_SESSION['flash'];
     unset($_SESSION['flash']);
     return $f;
+}
+
+/** Preserve bounded form input across one validation redirect. */
+function old_input_set(array $post): void
+{
+    $author = string_input($post, 'author');
+    $message = string_input($post, 'message');
+    $_SESSION['old_input'] = [
+        'author' => mb_substr($author ?? '', 0, AUTHOR_MAX),
+        'message' => mb_substr($message ?? '', 0, MESSAGE_MAX),
+    ];
+}
+
+/** Return and forget form input preserved for the next request. */
+function old_input_get(): array
+{
+    $input = $_SESSION['old_input'] ?? [];
+    unset($_SESSION['old_input']);
+    return is_array($input) ? $input : [];
 }
 
 /** Redirect (Post/Redirect/Get) and stop. */

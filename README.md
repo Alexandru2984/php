@@ -9,12 +9,15 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 ## Features
 - Post messages with an optional name; colored deterministic avatars.
 - Search and pagination.
+- Permanent message links and an RSS 2.0 feed (`/?format=rss`).
 - Light/dark theme with a persisted toggle.
 - Admin login for moderation (soft-deleting messages).
 - Recoverable moderation trash with restore controls and a recent security-event view.
 - Read-only JSON API: `/?format=json` (supports `q` and `page`).
 - Privacy minimisation that detaches abuse-prevention identifiers after 24 hours;
   analytics is opt-in through configuration.
+- Mobile-first responsive layout with keyboard, reduced-motion, forced-colors and
+  screen-reader affordances.
 
 ## Security
 - SQLite database lives **outside** the web root (`../php_micutu_app_storage`).

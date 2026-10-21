@@ -169,6 +169,7 @@ if ($method === 'POST') {
 
         [$author, $content, $error] = validate_submission($_POST);
         if ($error !== null) {
+            old_input_set($_POST);
             flash_set('error', $error);
             redirect('/');
         }
@@ -199,8 +200,19 @@ if ($rawQuery === null && array_key_exists('q', $_GET)) {
     abort_response(400, 'Invalid query.');
 }
 $q      = mb_substr(trim($rawQuery ?? ''), 0, 100);
+$messageId = null;
+if (array_key_exists('message', $_GET)) {
+    $messageId = id_input($_GET, 'message');
+    if ($messageId === null) {
+        abort_response(400, 'Invalid message.');
+    }
+}
 $whereParts = ["status = :status"];
 $params = [':status' => 'published'];
+if ($messageId !== null) {
+    $whereParts[] = 'id = :message_id';
+    $params[':message_id'] = $messageId;
+}
 if ($q !== '') {
     $whereParts[]   = "(author LIKE :q ESCAPE '\\' OR content LIKE :q ESCAPE '\\')";
     $params[':q']   = '%' . addcslashes($q, '%_\\') . '%';
@@ -273,6 +285,35 @@ if ($format === 'json') {
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
     exit;
 }
+if ($format === 'rss') {
+    header('Content-Type: application/rss+xml; charset=utf-8');
+    header('Cache-Control: private, no-store');
+    echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    ?>
+<rss version="2.0">
+<channel>
+    <title>Guestbook</title>
+    <link><?php echo xml_e(APP_ORIGIN . '/'); ?></link>
+    <description>Recent public guestbook messages</description>
+    <language>en</language>
+    <lastBuildDate><?php echo gmdate(DATE_RSS); ?></lastBuildDate>
+    <?php foreach ($messages as $message): ?>
+    <item>
+        <title><?php echo xml_e((string) ($message['author'] ?: 'Anonymous')); ?></title>
+        <link><?php echo xml_e(APP_ORIGIN . '/?message=' . (int) $message['id'] . '#m' . (int) $message['id']); ?></link>
+        <guid isPermaLink="true"><?php echo xml_e(APP_ORIGIN . '/?message=' . (int) $message['id'] . '#m' . (int) $message['id']); ?></guid>
+        <description><?php echo xml_e((string) $message['content']); ?></description>
+        <pubDate><?php echo gmdate(DATE_RSS, strtotime((string) $message['created_at'] . ' UTC') ?: 0); ?></pubDate>
+    </item>
+    <?php endforeach; ?>
+</channel>
+</rss>
+    <?php
+    exit;
+}
+if ($format !== null && $format !== '') {
+    abort_response(400, 'Unsupported format.');
+}
 
 /** Build a URL for the feed preserving the active search query. */
 function feed_url(int $page, string $q): string
@@ -283,14 +324,19 @@ function feed_url(int $page, string $q): string
 }
 
 $flash = flash_get();
+$oldInput = old_input_get();
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#4f46e5" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0a0e18" media="(prefers-color-scheme: dark)">
     <meta name="description" content="A little guestbook — leave a message.">
-    <title>Guestbook</title>
+    <title><?php echo $messageId !== null ? 'Message #' . $messageId . ' · ' : ''; ?>Guestbook</title>
+    <link rel="canonical" href="<?php echo e(APP_ORIGIN . ($messageId !== null ? '/?message=' . $messageId : '/')); ?>">
+    <link rel="alternate" type="application/rss+xml" title="Guestbook RSS" href="/?format=rss">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
     <link rel="stylesheet" href="<?php echo e(asset('assets/style.css')); ?>">
     <script src="<?php echo e(asset('assets/theme-init.js')); ?>"></script>
@@ -300,7 +346,8 @@ $flash = flash_get();
     <?php endif; ?>
 </head>
 <body>
-    <main class="app">
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <main class="app" id="main-content">
         <header class="header">
             <h1 class="brand">
                 <span class="logo"><?php echo icon('book'); ?></span>
@@ -314,14 +361,16 @@ $flash = flash_get();
                         <button class="linkbtn" type="submit">Sign out</button>
                     </form>
                 <?php endif; ?>
-                <button type="button" class="icon-btn" data-theme-toggle aria-label="Toggle theme">
+                <button type="button" class="icon-btn" data-theme-toggle aria-label="Switch color theme" aria-pressed="false">
                     <?php echo icon('sun', 'icon-sun'); ?><?php echo icon('moon', 'icon-moon'); ?>
                 </button>
             </div>
         </header>
 
         <?php if ($flash): ?>
-            <div class="flash <?php echo $flash['type'] === 'error' ? 'error' : 'success'; ?>" role="alert">
+            <div class="flash <?php echo $flash['type'] === 'error' ? 'error' : 'success'; ?>"
+                 role="<?php echo $flash['type'] === 'error' ? 'alert' : 'status'; ?>"
+                 <?php echo $flash['type'] === 'error' ? '' : 'data-auto-dismiss'; ?>>
                 <?php echo icon($flash['type'] === 'error' ? 'alert' : 'check'); ?>
                 <span><?php echo e($flash['message']); ?></span>
             </div>
@@ -337,7 +386,8 @@ $flash = flash_get();
                 <div class="input-wrap">
                     <?php echo icon('user', 'field-icon'); ?>
                     <input class="input" id="author" name="author" type="text"
-                           maxlength="<?php echo AUTHOR_MAX; ?>" placeholder="Your name">
+                           maxlength="<?php echo AUTHOR_MAX; ?>" placeholder="Your name"
+                           value="<?php echo e((string) ($oldInput['author'] ?? '')); ?>" autocomplete="name">
                 </div>
             </div>
 
@@ -350,7 +400,8 @@ $flash = flash_get();
                     <?php echo icon('message', 'field-icon'); ?>
                     <textarea class="textarea" id="message" name="message" required rows="3"
                               maxlength="<?php echo MESSAGE_MAX; ?>" data-counter="msg-counter"
-                              placeholder="What's on your mind?"></textarea>
+                              aria-describedby="msg-counter" enterkeyhint="send"
+                              placeholder="What's on your mind?"><?php echo e((string) ($oldInput['message'] ?? '')); ?></textarea>
                 </div>
             </div>
 
@@ -367,6 +418,7 @@ $flash = flash_get();
                     <?php if ($q !== ''): ?>
                         <a class="search-clear" href="/" aria-label="Clear search">&times;</a>
                     <?php endif; ?>
+                    <button class="search-submit" type="submit">Search</button>
                 </form>
             </div>
             <?php if (count($messages) > 0): ?>
@@ -386,12 +438,15 @@ $flash = flash_get();
                                 <div class="avatar av-<?php echo avatar_index($name); ?>"><?php echo e(avatar_initial($name)); ?></div>
                                 <div class="msg-meta">
                                     <p class="msg-author"><?php echo e($name); ?></p>
-                                    <p class="msg-time" title="<?php echo e($msg['created_at']); ?> UTC">
-                                        <?php echo icon('clock'); ?> <?php echo e(time_ago($msg['created_at'])); ?>
+                                    <p class="msg-time">
+                                        <?php echo icon('clock'); ?>
+                                        <time datetime="<?php echo e(str_replace(' ', 'T', (string) $msg['created_at']) . 'Z'); ?>"
+                                              title="<?php echo e($msg['created_at']); ?> UTC"><?php echo e(time_ago($msg['created_at'])); ?></time>
                                     </p>
                                 </div>
                             </div>
                             <p class="msg-body"><?php echo e($msg['content']); ?></p>
+                            <a class="permalink" href="/?message=<?php echo (int) $msg['id']; ?>#m<?php echo (int) $msg['id']; ?>" aria-label="Permanent link to message by <?php echo e($name); ?>">#<?php echo (int) $msg['id']; ?> · Permalink</a>
                         </article>
                     <?php endforeach; ?>
                 </div>

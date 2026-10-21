@@ -12,11 +12,19 @@
 
     var toggle = document.querySelector('[data-theme-toggle]');
     if (toggle) {
+        function updateThemeControl() {
+            var dark = currentTheme() === 'dark';
+            toggle.setAttribute('aria-pressed', dark ? 'true' : 'false');
+            toggle.setAttribute('aria-label', dark ? 'Use light theme' : 'Use dark theme');
+            toggle.title = dark ? 'Use light theme' : 'Use dark theme';
+        }
         toggle.addEventListener('click', function () {
             var next = currentTheme() === 'dark' ? 'light' : 'dark';
             document.documentElement.setAttribute('data-theme', next);
             try { localStorage.setItem('gb-theme', next); } catch (e) {}
+            updateThemeControl();
         });
+        updateThemeControl();
     }
 
     // ---- Character counter ----------------------------------------------
@@ -43,7 +51,7 @@
     });
 
     // ---- Auto-dismiss flash ---------------------------------------------
-    var flash = document.querySelector('.flash');
+    var flash = document.querySelector('.flash[data-auto-dismiss]');
     if (flash) {
         setTimeout(function () {
             flash.classList.add('hide');

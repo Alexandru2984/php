@@ -34,6 +34,7 @@ function check(bool $condition, string $description): void
 }
 
 check(e('<script>"x"</script>') === '&lt;script&gt;&quot;x&quot;&lt;/script&gt;', 'HTML is escaped');
+check(xml_e('<tag>&"') === '&lt;tag&gt;&amp;&quot;', 'XML is escaped');
 
 $firstToken = csrf_token();
 check(strlen($firstToken) === 64 && ctype_xdigit($firstToken), 'CSRF token is 32 random bytes');
@@ -47,6 +48,13 @@ check(string_input(['value' => ['nested']], 'value') === null, 'array input is r
 check(positive_int_input(['page' => '42'], 'page') === 42, 'positive decimal is parsed');
 check(positive_int_input(['page' => '1e3'], 'page', 7) === 7, 'numeric notation is rejected');
 check(positive_int_input(['page' => ['2']], 'page', 7) === 7, 'nested integer is rejected');
+check(id_input(['id' => '9223372036854775807'], 'id') === PHP_INT_MAX, '64-bit identifier is parsed');
+check(id_input(['id' => '0'], 'id') === null, 'zero identifier is rejected');
+
+old_input_set(['author' => 'Alice', 'message' => 'Remember me']);
+$oldInput = old_input_get();
+check($oldInput === ['author' => 'Alice', 'message' => 'Remember me'], 'form input survives one redirect');
+check(old_input_get() === [], 'preserved form input is one-shot');
 
 $_SERVER['HTTP_ORIGIN'] = 'https://php.micutu.com';
 $_SERVER['HTTP_SEC_FETCH_SITE'] = 'same-origin';

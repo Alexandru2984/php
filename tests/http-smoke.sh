@@ -68,6 +68,19 @@ cross_origin_code="$(request_code \
     "${APP_ORIGIN}/")"
 [[ "${cross_origin_code}" == 303 ]]
 
+invalid_post_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${csrf}" \
+    --data-urlencode 'action=post' \
+    --data-urlencode 'website=' \
+    --data-urlencode 'author=Remember me' \
+    --data-urlencode 'message=   ' \
+    "${APP_ORIGIN}/")"
+[[ "${invalid_post_code}" == 303 ]]
+validation_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
+grep --quiet 'value="Remember me"' <<<"${validation_html}"
+
 post_code="$(request_code \
     --cookie "${cookie_jar}" \
     --header "Origin: ${APP_ORIGIN}" \
@@ -80,6 +93,17 @@ post_code="$(request_code \
 [[ "${post_code}" == 303 ]]
 
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" 'SELECT COUNT(*) FROM messages;')" == 1 ]]
+message_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT id FROM messages WHERE status = 'published' LIMIT 1;")"
+permalink_html="$(curl --silent --show-error "${APP_ORIGIN}/?message=${message_id}")"
+grep --quiet 'Hello from the isolated smoke test' <<<"${permalink_html}"
+[[ "$(request_code "${APP_ORIGIN}/?message%5B%5D=${message_id}")" == 400 ]]
+
+rss="$(curl --silent --show-error "${APP_ORIGIN}/?format=rss")"
+grep --quiet '<rss version="2.0">' <<<"${rss}"
+grep --quiet 'Hello from the isolated smoke test' <<<"${rss}"
+# The PHP snippet is intentionally single-quoted shell input.
+# shellcheck disable=SC2016
+php -r '$xml = simplexml_load_string(stream_get_contents(STDIN)); exit($xml === false ? 1 : 0);' <<<"${rss}"
 
 login_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/")"
 login_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${login_html}" | head -n 1)"
@@ -114,7 +138,6 @@ admin_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}
 grep --quiet 'Sign out' <<<"${admin_html}"
 
 admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
-message_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT id FROM messages WHERE status = 'published' LIMIT 1;")"
 delete_code="$(request_code \
     --cookie "${cookie_jar}" \
     --header "Origin: ${APP_ORIGIN}" \
