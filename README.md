@@ -3,6 +3,9 @@
 A small, self-contained PHP + SQLite guestbook. No build step, no external
 runtime dependencies, no CDNs.
 
+Production hardening is tracked in the [security audit](docs/SECURITY_AUDIT.md)
+and the staged [product and security roadmap](docs/ROADMAP.md).
+
 ## Features
 - Post messages with an optional name; colored deterministic avatars.
 - Search and pagination.
