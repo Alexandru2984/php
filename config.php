@@ -17,8 +17,11 @@ const APP_ROOT = __DIR__;
 // Minimal .env loader
 // ---------------------------------------------------------------------------
 $__envFile = APP_ROOT . '/.env';
-if (is_file($__envFile)) {
-    foreach (file($__envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $__line) {
+$__envLines = is_file($__envFile) && is_readable($__envFile)
+    ? @file($__envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES)
+    : false;
+if (is_array($__envLines)) {
+    foreach ($__envLines as $__line) {
         $__line = trim($__line);
         if ($__line === '' || $__line[0] === '#' || !str_contains($__line, '=')) {
             continue;
@@ -30,7 +33,7 @@ if (is_file($__envFile)) {
         }
     }
 }
-unset($__envFile, $__line, $__k, $__v);
+unset($__envFile, $__envLines, $__line, $__k, $__v);
 
 function env(string $key, ?string $default = null): ?string
 {
