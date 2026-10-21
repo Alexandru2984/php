@@ -7,14 +7,31 @@ were not inspected.
 
 ## Executive verdict
 
-**MITIGATE BEFORE DEPLOYMENT.** The application already has useful controls (output
-escaping, prepared statements, CSRF tokens, secure cookies, an origin allow-list,
-TLS, a restrictive CSP and working daily backups), but the deployment boundary and
-admin authentication controls are not strong enough for a production host.
+**HIGH-PRIORITY REMEDIATION DEPLOYED; RESIDUAL OPERATIONAL RISK REMAINS.** S-01
+through S-05 were remediated on 2026-10-21 using an immutable release, a dedicated
+Unix/FPM identity, fail-closed configuration, persistent throttling and an atomic
+cutover. The production database remained at three messages and passed integrity
+checks before and after migration. Detection, incident response, privacy disclosure,
+off-host backups and full browser/accessibility automation remain incomplete.
 
-The first release should fix S-01 through S-05 and prove backup restoration before
-adding product features. Changes must be built and tested away from the live document
-root, then deployed atomically with a documented rollback.
+## Deployment verification snapshot
+
+- Production serves the tested immutable release through the `current` symlink and
+  the dedicated `php-guestbook` FPM pool. The previous release and nginx configuration
+  are retained for rollback.
+- `www-data` cannot read either production `.env` copy or the SQLite database. The
+  runtime identity cannot write a release; storage, sessions and local backups are
+  mode `0700` directories owned by `php-guestbook`.
+- Versioned migrations ran once and then skipped idempotently. The database reported
+  `integrity=ok`, three messages and three applied migrations after cutover.
+- Public probes returned `200` for HTML, JSON, RSS, CSS and `security.txt`; sensitive
+  paths and path-info returned `404`, unsupported methods returned `405`, and direct
+  access through the VPS public address returned `403`.
+- Manual one-shot backup and maintenance jobs succeeded under their sandboxed service
+  identity. Both daily timers are enabled; restored disposable backups pass the test
+  suite. The systemd exposure score was `2.9 OK` for both services.
+- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 41 unit
+  tests, HTTP integration tests and a compressed backup/restore smoke test.
 
 ## Findings
 
@@ -69,12 +86,14 @@ root, then deployed atomically with a documented rollback.
 
 ### Blast radius
 
-Worst case for this app: all guestbook records, author-supplied names/content, stable
-IP hashes, the admin password hash and `APP_SECRET` are exposed or modified. Because
-the FPM identity is shared, the realistic host-level blast radius includes every
-resource readable or writable by `www-data`, not only this repository. The database
-contained three message records at audit time; the number of historical visitors and
-other shared-pool records is unknown.
+Before remediation, compromise of the shared FPM identity could expose or modify all
+guestbook records, pseudonymous IP hashes, the admin password hash and `APP_SECRET`.
+The dedicated identity and filesystem permissions now prevent `www-data` from reading
+the secret or database and prevent the runtime from changing releases. Residual host
+risk remains: nginx must be able to connect to the dedicated Unix socket, privileged
+host compromise bypasses Unix isolation, and unrelated legacy applications still need
+their own isolation reviews. The database contained three message records at audit
+and deployment time.
 
 A defensible FAIR annual loss expectancy cannot be invented from source code. Record
 the following before risk acceptance: incident response hours and hourly cost,
@@ -120,7 +139,8 @@ application dependency attack surface.
 
 ## Audit limitations
 
-This review did not access Cloudflare/GitHub dashboards, decrypt message content,
-attempt password guessing, mutate production data, restore a production backup, or
-perform a destructive exploit. Passing this review is not a guarantee of security;
-repeat it after architecture or data-flow changes.
+This review did not access Cloudflare/GitHub dashboards, inspect message bodies,
+attempt password guessing, restore over the live database or perform a destructive
+exploit. Deployment did apply backed-up schema migrations and the retention job
+removed one expired pseudonymous message identifier. Passing this review is not a
+guarantee of security; repeat it after architecture or data-flow changes.

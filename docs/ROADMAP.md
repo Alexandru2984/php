@@ -5,6 +5,22 @@ stage must be an atomic commit (or small reviewed commit series), include tests 
 have a rollback path. Production changes happen only after the stage passes its exit
 criteria.
 
+## Status after the 2026-10-21 hardening release
+
+- **Deployed:** Stages 0–2 core controls: isolated build/test, recoverable backup,
+  fail-closed configuration, persistent auth throttling, versioned migrations,
+  security events, immutable releases, dedicated FPM identity, strict nginx routing,
+  origin denial and nonce-based CSP.
+- **Partially delivered:** recoverable moderation and identifier minimisation from
+  Stage 3; RSS/permalinks from Stage 5; responsive/accessibility foundations from
+  Stage 6; pinned CI, `security.txt` and hardened systemd jobs from Stage 8.
+- **Next priority:** alerting and incident response, privacy/about/report-abuse UI,
+  moderation states/queue, off-host encrypted backup plus a production-snapshot
+  restore drill, browser accessibility checks, and API endpoints that avoid sessions.
+- **Still deferred:** Stage 7 community features and the explicitly deferred features
+  at the end of this document. They must not outrun the remaining privacy, abuse and
+  observability controls.
+
 ## Stage 0 — Release safety and baseline (P0)
 
 - Work in an isolated worktree/branch; never edit the served checkout in place.
