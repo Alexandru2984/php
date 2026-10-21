@@ -11,8 +11,10 @@ were not inspected.
 through S-05 were remediated on 2026-10-21 using an immutable release, a dedicated
 Unix/FPM identity, fail-closed configuration, persistent throttling and an atomic
 cutover. The production database remained at three messages and passed integrity
-checks before and after migration. Detection, incident response, privacy disclosure,
-off-host backups and full browser/accessibility automation remain incomplete.
+checks before and after migration. Detection, a privacy disclosure, reversible
+moderation, category-only abuse reporting and an incident-response runbook are now
+deployed. Off-host backups, a formal tabletop, data-subject operations and full
+browser/accessibility automation remain incomplete.
 
 ## Deployment verification snapshot
 
@@ -23,15 +25,17 @@ off-host backups and full browser/accessibility automation remain incomplete.
   runtime identity cannot write a release; storage, sessions and local backups are
   mode `0700` directories owned by `php-guestbook`.
 - Versioned migrations ran once and then skipped idempotently. The database reported
-  `integrity=ok`, three messages and three applied migrations after cutover.
+  `integrity=ok`, three published messages and four applied migrations after the
+  moderation cutover. The new report queue was empty at deployment.
 - Public probes returned `200` for HTML, JSON, RSS, CSS and `security.txt`; sensitive
   paths and path-info returned `404`, unsupported methods returned `405`, and direct
   access through the VPS public address returned `403`.
 - Manual one-shot backup and maintenance jobs succeeded under their sandboxed service
   identity. Both daily timers are enabled; restored disposable backups pass the test
   suite. The systemd exposure score was `2.9 OK` for both services.
-- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 41 unit
-  tests, HTTP integration tests and a compressed backup/restore smoke test.
+- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 58 unit
+  tests, HTTP integration, moderation lifecycle, health alerting and a compressed
+  backup/restore smoke test.
 
 ## Findings
 
@@ -42,18 +46,18 @@ off-host backups and full browser/accessibility automation remain incomplete.
 | S-03 | High | Admin login throttling is session-local and trivially reset. | Clearing the `gbsid` cookie resets the five-attempt counter. An attacker can make unlimited distributed or cookie-rotated password guesses behind the edge request limit. | Store attempt counters server-side by keyed IP hash, add exponential lockouts and emit security events. Keep error responses non-enumerating. |
 | S-04 | High | Configuration fails open for the IP-hash secret. | If `APP_SECRET` is absent, the code silently uses the public string `insecure-default`. This makes stored client hashes linkable and predictable. | Refuse startup in production when required secrets are missing, malformed or weak. Validate the admin password hash as well. |
 | S-05 | High | There is no reliable production release boundary. | The checked-out `main` branch is the nginx document root, so editing it changes production before tests complete and leaves partial-release windows. | Build in a separate worktree, test, snapshot, switch an atomic `current` symlink, health-check, and roll back automatically on failure. |
-| S-06 | High | Detection and incident response are not operationalized. | Access/error logs exist, but there are no application security events, alerts, named on-call owner, tested runbook or measurable MTTD. The deploy user cannot currently read the site logs. | Add structured auth/moderation events, alert rules, log rotation/access policy, an IR runbook and a quarterly tabletop. |
+| S-06 | Medium | Detection is operational; response rehearsal remains incomplete. | Security/moderation events, five-minute health alerts, Telegram delivery/recovery and an IR runbook are deployed. A formal tabletop and measured delivery SLO are not complete. | Run credential-compromise and data-loss tabletops; record delivery and response times quarterly. |
 | S-07 | Medium | Admin sessions lack explicit idle and absolute expiry. | Login rotates the session ID, but admin state persists until PHP garbage collection and there is no server-enforced admin lifetime. PHP strict-session mode is disabled globally. | Enable strict session mode, enforce idle/absolute timeouts, rotate CSRF on privilege changes and fully destroy logout sessions. |
 | S-08 | Medium | Input type confusion can create warnings and unintended values. | Array values for `q`, `page`, `author`, `message` or `password` are cast instead of rejected. This can generate log noise or accept the literal value `Array`. | Accept only expected scalar types, use centralized input helpers, and test malformed nested parameters. |
 | S-09 | Medium | Database DDL runs on every web request and migration errors are swallowed. | `CREATE`/`ALTER`/index statements execute during bootstrap; every migration exception is treated as "column exists". Disk, permission and corruption errors can be hidden. | Move schema changes to versioned, transactional CLI migrations and keep web requests read/write-data only. |
 | S-10 | Medium | Cloudflare JavaScript Detection conflicts with CSP. | The live edge injects an inline challenge script while `script-src` disallows inline code. Browsers will block it, reducing bot signal quality. | Keep `unsafe-inline` forbidden. Use a per-response CSP nonce that Cloudflare can propagate, or intentionally disable injection for this hostname. |
-| S-11 | Medium | Pseudonymous network identifiers have no defined retention. | A stable salted IP hash is retained on each message indefinitely. There is no privacy notice, erasure workflow or scheduled minimisation job. | Document purpose/legal basis, disclose analytics and identifiers, rotate the hashing purpose key, and erase rate-limit identifiers after a short defined window. |
-| S-12 | Medium | Moderation has no audit trail or recovery. | Admin deletion is immediate and permanent, with no actor/event record, reason, tombstone or undo path. This creates tampering and repudiation risk. | Add a moderation queue, soft deletion, append-only audit events and restore/purge actions. |
-| S-13 | Medium | Repository backup automation has drifted from production. | The tracked script points to old home-directory paths; production uses a separate hardened script and timer. The live job succeeds, but the repository cannot recreate it. | Bring the hardened script and systemd units under version control; add an automated restore/integrity drill and encrypted off-host copy. |
+| S-11 | Medium | Core identifier retention is defined; full data-subject workflow remains. | Message identifiers detach after 24 hours, rate limits expire after seven days, security/closed reports after 90 days, and the public notice explains processing. Export/erasure operations and key-rotation procedure are not complete. | Add authenticated export/erasure commands, record legal basis and test purpose-key rotation. |
+| S-12 | Low | Reversible moderation and audit are deployed; purge policy remains deferred. | Five states, controlled reasons, a report queue, atomic transitions and trigger-protected append-only audit remove immediate-deletion and repudiation risk. Permanent purge and bulk actions are intentionally absent. | Define purge authorization/retention before adding permanent deletion; keep public reports non-automatic. |
+| S-13 | Medium | Local backup automation matches the repository; off-host resilience is absent. | Hardened versioned scripts/timers, age alerts and disposable restores pass, including a production-snapshot migration drill. A host/storage loss can still remove both live data and local backups. | Add an encrypted off-host copy, key recovery procedure and scheduled off-host restore drill. |
 | S-14 | Medium | The public JSON feed starts sessions and advertises public caching. | Read-only API requests receive a session cookie and conflicting legacy no-cache headers alongside `Cache-Control: public`. This hurts caching and unnecessarily creates identifiers. | Avoid sessions for truly public reads or mark the endpoint private/no-store; add API versioning, ETags and explicit cache semantics. |
-| S-15 | Medium | External analytics expands the script and privacy trust boundary. | The CSP permits an analytics origin to execute scripts; compromise there becomes same-page script execution. No repository privacy disclosure or vendor register exists. | Make analytics opt-in/configurable, self-host a pinned asset where possible, document retention/DPA, and minimize collected fields. |
+| S-15 | Medium | Self-hosted analytics expands the script trust boundary. | The CSP permits the VPS-hosted analytics origin to execute scripts. The tracker is domain-bound, DNT-aware and excludes query/hash, and the public notice exists; origin compromise still becomes same-page script execution. | Pin/review upgrades, document retention/processor basis and consider serving a verified local tracker asset. |
 | S-16 | Low | Application method and canonical-path handling relies on the edge. | Unsupported methods are rejected live by nginx/Cloudflare, but the PHP controller treats every non-POST method as a read; `/index.php/...` also renders successfully. | Enforce `GET`, `HEAD`, and `POST` in PHP, reject path-info, and add canonical redirects/tests. |
-| S-17 | Low | Automated verification is absent. | There are no unit, integration, browser, accessibility, security-regression or CI checks. Only manual syntax checks are available. | Add a dependency-free test harness first, then CI linting, ShellCheck, secret scanning and browser/a11y checks. |
+| S-17 | Low | Automated CI exists; real-browser accessibility coverage is absent. | Unit, HTTP, malformed-input, backup/restore, health, operational and secret-leakage checks run locally and in GitHub CI. Axe/Lighthouse and screen-reader flows remain manual. | Add pinned browser/a11y automation and branch-protection enforcement after push. |
 
 ## Controls verified
 
@@ -79,8 +83,8 @@ off-host backups and full browser/accessibility automation remain incomplete.
 | Elevation / Tampering | Shared PHP worker writes executable code or reads another site's secrets. | High | Critical | 1 |
 | Spoofing | Unlimited cookie-rotated guesses obtain the single admin credential. | High | High | 2 |
 | Information disclosure | Shared-pool, backup, analytics or admin compromise exposes messages, identifiers and secrets. | Medium | High | 3 |
-| Repudiation | Admin deletion or auth abuse cannot be reconstructed from an application audit trail. | High | Medium | 4 |
-| Denial of service | SQLite write contention, search scans, disk exhaustion or broad per-IP limits degrade service. | Medium | Medium | 5 |
+| Repudiation | Host-level compromise could alter both data and local audit history despite application append-only triggers. | Low | Medium | 4 |
+| Denial of service | Distributed report floods, SQLite contention, search scans or disk exhaustion degrade service. | Medium | Medium | 5 |
 
 ## CISO forcing questions
 
@@ -105,17 +109,18 @@ magnitude` for credential takeover, cross-vhost compromise and data loss.
 
 - Current MTTD after the monitoring rollout: about five minutes for public health,
   permission/release drift, SQLite integrity, backup age, disk pressure and five admin
-  failures in 15 minutes. Watched systemd failures dispatch immediately. The existing
-  Cloudflare bot checks traffic spikes and edge 5xx responses every five minutes.
-- Remaining alerts: moderation anomalies, release-hash attestation and measured
-  notification-delivery SLOs.
+  failures in 15 minutes and ten open abuse reports. Watched systemd failures dispatch
+  immediately. The existing Cloudflare bot checks traffic spikes and edge 5xx
+  responses every five minutes.
+- Remaining alerts: distributed report-rate anomalies below the backlog threshold,
+  release-hash attestation and measured notification-delivery SLOs.
 
 ### Response
 
-No repository incident-response runbook or tabletop evidence exists. Before rollout,
-document containment, credential/key rotation, session invalidation, evidence
-preservation, restore, Cloudflare rule changes, stakeholder decisions and postmortem
-ownership. Run one credential-compromise and one data-loss tabletop.
+The repository runbook documents containment, credential/key rotation, session
+invalidation, evidence preservation, restore, Cloudflare changes, communications and
+postmortem ownership. It has not completed a formal human tabletop. Run and record one
+credential-compromise and one data-loss exercise before marking this control green.
 
 ### Regulatory
 
@@ -144,6 +149,7 @@ application dependency attack surface.
 
 This review did not access Cloudflare/GitHub dashboards, inspect message bodies,
 attempt password guessing, restore over the live database or perform a destructive
-exploit. Deployment did apply backed-up schema migrations and the retention job
-removed one expired pseudonymous message identifier. Passing this review is not a
-guarantee of security; repeat it after architecture or data-flow changes.
+exploit. Deployment applied the backed-up fourth schema migration after a disposable
+restore of the production snapshot proved integrity and compatibility. Passing this
+review is not a guarantee of security; repeat it after architecture or data-flow
+changes.
