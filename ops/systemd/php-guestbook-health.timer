@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the PHP guestbook production probe every five minutes
+
+[Timer]
+OnCalendar=*-*-* *:0/5:00
+AccuracySec=15s
+RandomizedDelaySec=20s
+Persistent=true
+Unit=php-guestbook-health.service
+
+[Install]
+WantedBy=timers.target

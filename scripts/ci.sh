@@ -18,6 +18,8 @@ shellcheck -x scripts/*.sh tests/*.sh ops/scripts/*.sh
 php tests/run.php
 bash tests/http-smoke.sh
 bash tests/backup-smoke.sh
+bash tests/healthcheck-smoke.sh
+bash tests/ops-smoke.sh
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git diff --check
 fi

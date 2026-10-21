@@ -1,6 +1,8 @@
 [Unit]
 Description=Prune and optimize the PHP guestbook database
 After=local-fs.target
+OnFailure=swift-vapor-alert@%n.service
+OnSuccess=swift-vapor-resolved@%n.service
 
 [Service]
 Type=oneshot

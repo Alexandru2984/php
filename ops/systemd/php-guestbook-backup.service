@@ -1,6 +1,8 @@
 [Unit]
 Description=Consistent backup of the live PHP guestbook SQLite database
 After=local-fs.target
+OnFailure=swift-vapor-alert@%n.service
+OnSuccess=swift-vapor-resolved@%n.service
 
 [Service]
 Type=oneshot
