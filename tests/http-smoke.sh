@@ -118,9 +118,36 @@ post_code="$(request_code \
 
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" 'SELECT COUNT(*) FROM messages;')" == 1 ]]
 message_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT id FROM messages WHERE status = 'published' LIMIT 1;")"
-permalink_html="$(curl --silent --show-error "${APP_ORIGIN}/?message=${message_id}")"
+permalink_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/?message=${message_id}")"
 grep --quiet 'Hello from the isolated smoke test' <<<"${permalink_html}"
+grep --quiet 'No free-text report or reporter identifier is stored.' <<<"${permalink_html}"
 [[ "$(request_code "${APP_ORIGIN}/?message%5B%5D=${message_id}")" == 400 ]]
+
+report_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${permalink_html}" | head -n 1)"
+[[ "${report_csrf}" =~ ^[0-9a-f]{64}$ ]]
+invalid_report_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${report_csrf}" \
+    --data-urlencode 'action=report' \
+    --data-urlencode "id=${message_id}" \
+    --data-urlencode 'category=unknown' \
+    "${APP_ORIGIN}/")"
+[[ "${invalid_report_code}" == 303 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" 'SELECT COUNT(*) FROM abuse_reports;')" == 0 ]]
+
+report_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${report_csrf}" \
+    --data-urlencode 'action=report' \
+    --data-urlencode "id=${message_id}" \
+    --data-urlencode 'category=privacy' \
+    "${APP_ORIGIN}/")"
+[[ "${report_code}" == 303 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT message_id || ':' || category || ':' || status FROM abuse_reports;")" == "${message_id}:privacy:open" ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT attempts FROM rate_limits WHERE scope = 'abuse-report';")" == 1 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT group_concat(name, ',') FROM pragma_table_info('abuse_reports');")" == 'id,message_id,category,status,created_at,reviewed_at' ]]
 
 rss="$(curl --silent --show-error "${APP_ORIGIN}/?format=rss")"
 grep --quiet '<rss version="2.0">' <<<"${rss}"
@@ -157,32 +184,55 @@ good_login_code="$(request_code \
 [[ "${good_login_code}" == 303 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM rate_limits WHERE scope = 'admin-login';")" == 0 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM security_events WHERE event_type = 'admin.login';")" == 2 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM admin_audit_events WHERE event_type = 'admin.login';")" == 1 ]]
 
 admin_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
 grep --quiet 'Sign out' <<<"${admin_html}"
+grep --quiet 'Abuse reports · 1 open' <<<"${admin_html}"
+grep --quiet 'Append-only admin audit' <<<"${admin_html}"
 
 admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
-delete_code="$(request_code \
+hide_code="$(request_code \
     --cookie "${cookie_jar}" \
     --header "Origin: ${APP_ORIGIN}" \
     --data-urlencode "csrf=${admin_csrf}" \
-    --data-urlencode 'action=delete' \
+    --data-urlencode 'action=moderate' \
     --data-urlencode "id=${message_id}" \
+    --data-urlencode 'status=hidden' \
+    --data-urlencode 'reason=privacy' \
     "${APP_ORIGIN}/")"
-[[ "${delete_code}" == 303 ]]
-[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status || ':' || (ip_hash IS NULL) FROM messages WHERE id = ${message_id};")" == deleted:1 ]]
+[[ "${hide_code}" == 303 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status || ':' || moderation_reason || ':' || (ip_hash IS NULL) FROM messages WHERE id = ${message_id};")" == hidden:privacy:1 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT previous_state || ':' || new_state || ':' || reason_code FROM admin_audit_events WHERE event_type = 'message.hide';")" == published:hidden:privacy ]]
 
 admin_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
 admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
-grep --quiet 'Recently deleted messages' <<<"${admin_html}"
+grep --quiet 'Moderated messages · 1 recent' <<<"${admin_html}"
+report_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT id FROM abuse_reports WHERE status = 'open';")"
+review_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${admin_csrf}" \
+    --data-urlencode 'action=review_report' \
+    --data-urlencode "id=${report_id}" \
+    --data-urlencode 'decision=resolved' \
+    "${APP_ORIGIN}/")"
+[[ "${review_code}" == 303 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status FROM abuse_reports WHERE id = ${report_id};")" == resolved ]]
+
+admin_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
+admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
 restore_code="$(request_code \
     --cookie "${cookie_jar}" \
     --header "Origin: ${APP_ORIGIN}" \
     --data-urlencode "csrf=${admin_csrf}" \
-    --data-urlencode 'action=restore' \
+    --data-urlencode 'action=moderate' \
     --data-urlencode "id=${message_id}" \
+    --data-urlencode 'status=published' \
+    --data-urlencode 'reason=restored' \
     "${APP_ORIGIN}/")"
 [[ "${restore_code}" == 303 ]]
-[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status FROM messages WHERE id = ${message_id};")" == published ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status || ':' || moderation_reason FROM messages WHERE id = ${message_id};")" == published:restored ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM admin_audit_events;")" == 4 ]]
 
 echo 'HTTP smoke tests passed.'

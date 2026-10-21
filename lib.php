@@ -187,6 +187,12 @@ function client_ip_hash(string $purpose = 'posting'): string
     return hash_hmac('sha256', $purpose . "\0" . client_ip(), APP_SECRET);
 }
 
+/** Stable logical actor for the single local admin; deliberately unrelated to IP. */
+function admin_actor_hash(): string
+{
+    return hash_hmac('sha256', "admin-actor\0local-admin", APP_SECRET);
+}
+
 /** Seconds remaining on a persistent limiter, or zero when the subject may try. */
 function rate_limit_retry_after(
     PDO $pdo,

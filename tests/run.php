@@ -84,6 +84,12 @@ check(client_ip() === '2001:db8::1', 'valid IPv6 address is accepted');
 $postingHash = client_ip_hash('posting');
 $loginHash = client_ip_hash('admin-login');
 check(strlen($postingHash) === 64 && $postingHash !== $loginHash, 'client hashes are keyed and purpose-separated');
+$logicalAdmin = admin_actor_hash();
+$_SERVER['REMOTE_ADDR'] = '2001:db8::2';
+check(
+    admin_actor_hash() === $logicalAdmin && admin_actor_hash() !== client_ip_hash('admin-action'),
+    'permanent admin actor is stable and independent from network identity'
+);
 $_SERVER['REMOTE_ADDR'] = "not-an-ip\n";
 check(client_ip() === '0.0.0.0', 'invalid remote address is rejected');
 

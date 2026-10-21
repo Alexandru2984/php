@@ -46,6 +46,12 @@ if ($method === 'POST') {
         if ($ok) {
             rate_limit_clear($pdo, 'admin-login', $loginSubject);
             security_event($pdo, 'admin.login', 'success', $loginSubject);
+            admin_audit_event(
+                $pdo,
+                'admin.login',
+                'success',
+                admin_actor_hash()
+            );
             session_regenerate_id(true);
             $_SESSION['is_admin'] = true;
             $_SESSION['admin_authenticated_at'] = time();
@@ -76,7 +82,11 @@ if ($method === 'POST') {
     }
 
     if ($action === 'logout') {
-        security_event($pdo, 'admin.logout', 'success', client_ip_hash('admin-action'));
+        $adminSubject = client_ip_hash('admin-action');
+        security_event($pdo, 'admin.logout', 'success', $adminSubject);
+        if (!empty($_SESSION['is_admin'])) {
+            admin_audit_event($pdo, 'admin.logout', 'success', admin_actor_hash());
+        }
         $_SESSION = [];
         session_regenerate_id(true);
         csrf_rotate();
@@ -84,70 +94,104 @@ if ($method === 'POST') {
         redirect('/');
     }
 
-    if ($action === 'delete') {
+    if (in_array($action, ['moderate', 'delete', 'restore'], true)) {
+        $adminSubject = client_ip_hash('admin-action');
         if (empty($_SESSION['is_admin'])) {
-            security_event($pdo, 'message.delete', 'blocked', client_ip_hash('admin-action'));
+            security_event($pdo, 'message.moderate', 'blocked', $adminSubject);
             flash_set('error', 'Not authorised.');
             redirect('/');
         }
-        $id = id_input($_POST, 'id');
-        if ($id !== null) {
-            $stmt = $pdo->prepare(
-                "UPDATE messages
-                 SET status = 'deleted', deleted_at = CURRENT_TIMESTAMP, ip_hash = NULL
-                 WHERE id = :id AND status = 'published'"
-            );
-            $stmt->bindValue(':id', $id, PDO::PARAM_INT);
-            $stmt->execute();
-            $changed = $stmt->rowCount() === 1;
-            security_event(
-                $pdo,
-                'message.delete',
-                $changed ? 'success' : 'failure',
-                client_ip_hash('admin-action'),
-                $id
-            );
-            flash_set($changed ? 'success' : 'error', $changed
-                ? 'Message moved to moderation trash.'
-                : 'Message was not found or was already deleted.');
-        } else {
-            security_event($pdo, 'message.delete', 'failure', client_ip_hash('admin-action'));
-            flash_set('error', 'Invalid message id.');
-        }
-        redirect('/');
-    }
 
-    if ($action === 'restore') {
-        if (empty($_SESSION['is_admin'])) {
-            security_event($pdo, 'message.restore', 'blocked', client_ip_hash('admin-action'));
-            flash_set('error', 'Not authorised.');
-            redirect('/');
-        }
         $id = id_input($_POST, 'id');
-        if ($id === null) {
-            security_event($pdo, 'message.restore', 'failure', client_ip_hash('admin-action'));
-            flash_set('error', 'Invalid message id.');
+        $newState = $action === 'delete'
+            ? 'deleted'
+            : ($action === 'restore'
+                ? 'published'
+                : enum_input($_POST, 'status', moderation_states()));
+        $reason = $action === 'delete'
+            ? 'policy'
+            : ($action === 'restore'
+                ? 'restored'
+                : enum_input($_POST, 'reason', moderation_reasons()));
+
+        $validPair = $newState !== null
+            && $reason !== null
+            && (($newState === 'published' && $reason === 'restored')
+                || ($newState !== 'published' && $reason !== 'restored'));
+        if ($id === null || !$validPair) {
+            security_event($pdo, 'message.moderate', 'failure', $adminSubject, $id);
+            flash_set('error', 'Invalid moderation request.');
             redirect('/');
         }
 
-        $stmt = $pdo->prepare(
-            "UPDATE messages
-             SET status = 'published', deleted_at = NULL
-             WHERE id = :id AND status = 'deleted'"
-        );
-        $stmt->bindValue(':id', $id, PDO::PARAM_INT);
-        $stmt->execute();
-        $changed = $stmt->rowCount() === 1;
+        $changed = moderate_message($pdo, $id, $newState, $reason, admin_actor_hash());
         security_event(
             $pdo,
-            'message.restore',
+            'message.moderate',
             $changed ? 'success' : 'failure',
-            client_ip_hash('admin-action'),
+            $adminSubject,
             $id
         );
         flash_set($changed ? 'success' : 'error', $changed
-            ? 'Message restored.'
-            : 'Message was not found or is already published.');
+            ? 'Moderation state updated.'
+            : 'Message was not found or already had that state.');
+        redirect('/');
+    }
+
+    if ($action === 'report') {
+        $id = id_input($_POST, 'id');
+        $category = enum_input($_POST, 'category', abuse_report_categories());
+        if ($id === null || $category === null) {
+            flash_set('error', 'Invalid report. Please try again.');
+            redirect('/');
+        }
+
+        $reportSubject = client_ip_hash('abuse-report');
+        if (rate_limit_retry_after($pdo, 'abuse-report', $reportSubject) > 0) {
+            security_event($pdo, 'abuse.report', 'blocked', null, $id);
+            flash_set('error', 'Too many reports. Please try again later.');
+            redirect('/?message=' . $id . '#m' . $id);
+        }
+
+        $created = create_abuse_report($pdo, $id, $category);
+        if ($created) {
+            rate_limit_record_failure($pdo, 'abuse-report', $reportSubject, 5, 3600, 3600);
+            security_event($pdo, 'abuse.report', 'success', null, $id);
+            flash_set('success', 'Report received. Thank you for helping keep this space safe.');
+        } else {
+            security_event($pdo, 'abuse.report', 'failure', null, $id);
+            flash_set('error', 'That message is no longer available for reporting.');
+        }
+        redirect('/?message=' . $id . '#m' . $id);
+    }
+
+    if ($action === 'review_report') {
+        $adminSubject = client_ip_hash('admin-action');
+        if (empty($_SESSION['is_admin'])) {
+            security_event($pdo, 'report.review', 'blocked', $adminSubject);
+            flash_set('error', 'Not authorised.');
+            redirect('/');
+        }
+
+        $reportId = id_input($_POST, 'id');
+        $decision = enum_input($_POST, 'decision', ['resolved', 'dismissed']);
+        if ($reportId === null || $decision === null) {
+            security_event($pdo, 'report.review', 'failure', $adminSubject, $reportId);
+            flash_set('error', 'Invalid report review.');
+            redirect('/');
+        }
+
+        $changed = review_abuse_report($pdo, $reportId, $decision, admin_actor_hash());
+        security_event(
+            $pdo,
+            'report.review',
+            $changed ? 'success' : 'failure',
+            $adminSubject,
+            $reportId
+        );
+        flash_set($changed ? 'success' : 'error', $changed
+            ? 'Report marked as ' . $decision . '.'
+            : 'Report was not found or was already reviewed.');
         redirect('/');
     }
 
@@ -242,17 +286,38 @@ $stmt->bindValue(':off', $offset, PDO::PARAM_INT);
 $stmt->execute();
 $messages = $stmt->fetchAll();
 
-$deletedMessages = [];
+$moderatedMessages = [];
+$openReports = [];
+$adminAuditEvents = [];
 $securityEvents = [];
-$deletedTotal = 0;
+$moderationCounts = array_fill_keys(moderation_states(), 0);
+$openReportTotal = 0;
 if ($isAdmin) {
-    $deletedTotal = (int) $pdo->query(
-        "SELECT COUNT(*) FROM messages WHERE status = 'deleted'"
+    foreach ($pdo->query('SELECT status, COUNT(*) AS total FROM messages GROUP BY status') as $row) {
+        if (array_key_exists((string) $row['status'], $moderationCounts)) {
+            $moderationCounts[(string) $row['status']] = (int) $row['total'];
+        }
+    }
+    $moderatedMessages = $pdo->query(
+        "SELECT id, author, content, status, moderation_reason, moderated_at, created_at
+         FROM messages WHERE status != 'published'
+         ORDER BY COALESCE(moderated_at, deleted_at, created_at) DESC, id DESC LIMIT 30"
+    )->fetchAll();
+    $openReports = $pdo->query(
+        "SELECT r.id, r.message_id, r.category, r.created_at,
+                m.author, m.content, m.status AS message_status
+         FROM abuse_reports AS r
+         JOIN messages AS m ON m.id = r.message_id
+         WHERE r.status = 'open'
+         ORDER BY r.created_at ASC, r.id ASC LIMIT 30"
+    )->fetchAll();
+    $openReportTotal = (int) $pdo->query(
+        "SELECT COUNT(*) FROM abuse_reports WHERE status = 'open'"
     )->fetchColumn();
-    $deletedMessages = $pdo->query(
-        "SELECT id, author, content, created_at, deleted_at
-         FROM messages WHERE status = 'deleted'
-         ORDER BY deleted_at DESC, id DESC LIMIT 20"
+    $adminAuditEvents = $pdo->query(
+        "SELECT event_type, outcome, related_id, previous_state, new_state,
+                reason_code, created_at
+         FROM admin_audit_events ORDER BY id DESC LIMIT 30"
     )->fetchAll();
     $securityEvents = $pdo->query(
         "SELECT event_type, outcome, related_id, created_at
@@ -325,6 +390,28 @@ function feed_url(int $page, string $q): string
 
 $flash = flash_get();
 $oldInput = old_input_get();
+$statusLabels = [
+    'pending' => 'Pending',
+    'published' => 'Published',
+    'hidden' => 'Hidden',
+    'deleted' => 'Deleted',
+    'spam' => 'Spam',
+];
+$reasonLabels = [
+    'spam' => 'Spam',
+    'harassment' => 'Harassment',
+    'privacy' => 'Privacy',
+    'policy' => 'Policy violation',
+    'requested' => 'Author request',
+    'other' => 'Other',
+    'restored' => 'Restore to public',
+];
+$reportLabels = [
+    'spam' => 'Spam or scam',
+    'harassment' => 'Harassment',
+    'privacy' => 'Personal/private information',
+    'other' => 'Other policy concern',
+];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -353,7 +440,7 @@ $oldInput = old_input_get();
 </head>
 <body>
     <a class="skip-link" href="#main-content">Skip to content</a>
-    <main class="app" id="main-content">
+    <main class="app<?php echo $isAdmin ? ' app-admin' : ''; ?>" id="main-content">
         <header class="header">
             <h1 class="brand">
                 <span class="logo"><?php echo icon('book'); ?></span>
@@ -432,14 +519,6 @@ $oldInput = old_input_get();
                     <?php foreach ($messages as $msg): ?>
                         <?php $name = $msg['author'] ?? 'Anonymous'; ?>
                         <article class="msg" id="m<?php echo (int) $msg['id']; ?>">
-                            <?php if ($isAdmin): ?>
-                            <form method="POST" data-confirm="Delete this message?">
-                                <?php echo csrf_field(); ?>
-                                <input type="hidden" name="action" value="delete">
-                                <input type="hidden" name="id" value="<?php echo (int) $msg['id']; ?>">
-                                <button class="msg-del" type="submit" title="Delete" aria-label="Delete message"><?php echo icon('trash'); ?></button>
-                            </form>
-                            <?php endif; ?>
                             <div class="msg-head">
                                 <div class="avatar av-<?php echo avatar_index($name); ?>"><?php echo e(avatar_initial($name)); ?></div>
                                 <div class="msg-meta">
@@ -452,7 +531,54 @@ $oldInput = old_input_get();
                                 </div>
                             </div>
                             <p class="msg-body"><?php echo e($msg['content']); ?></p>
-                            <a class="permalink" href="/?message=<?php echo (int) $msg['id']; ?>#m<?php echo (int) $msg['id']; ?>" aria-label="Permanent link to message by <?php echo e($name); ?>">#<?php echo (int) $msg['id']; ?> · Permalink</a>
+                            <div class="message-actions">
+                                <a class="permalink" href="/?message=<?php echo (int) $msg['id']; ?>#m<?php echo (int) $msg['id']; ?>" aria-label="Permanent link to message by <?php echo e($name); ?>">#<?php echo (int) $msg['id']; ?> · Permalink</a>
+                                <?php if (!$isAdmin): ?>
+                                <details class="report-menu">
+                                    <summary>Report</summary>
+                                    <form method="POST" class="report-form">
+                                        <?php echo csrf_field(); ?>
+                                        <input type="hidden" name="action" value="report">
+                                        <input type="hidden" name="id" value="<?php echo (int) $msg['id']; ?>">
+                                        <label for="report-category-<?php echo (int) $msg['id']; ?>">Why are you reporting this?</label>
+                                        <select class="select" id="report-category-<?php echo (int) $msg['id']; ?>" name="category" required>
+                                            <?php foreach ($reportLabels as $value => $label): ?>
+                                            <option value="<?php echo e($value); ?>"><?php echo e($label); ?></option>
+                                            <?php endforeach; ?>
+                                        </select>
+                                        <p>No free-text report or reporter identifier is stored.</p>
+                                        <button class="btn secondary compact" type="submit">Submit report</button>
+                                    </form>
+                                </details>
+                                <?php endif; ?>
+                            </div>
+                            <?php if ($isAdmin): ?>
+                            <form method="POST" class="moderation-control">
+                                <?php echo csrf_field(); ?>
+                                <input type="hidden" name="action" value="moderate">
+                                <input type="hidden" name="id" value="<?php echo (int) $msg['id']; ?>">
+                                <label>
+                                    <span>Move to</span>
+                                    <select class="select" name="status" required>
+                                        <option value="pending">Pending</option>
+                                        <option value="hidden">Hidden</option>
+                                        <option value="spam">Spam</option>
+                                        <option value="deleted">Deleted</option>
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Reason</span>
+                                    <select class="select" name="reason" required>
+                                        <?php foreach ($reasonLabels as $value => $label): ?>
+                                            <?php if ($value !== 'restored'): ?>
+                                            <option value="<?php echo e($value); ?>"><?php echo e($label); ?></option>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </label>
+                                <button class="btn secondary compact" type="submit">Apply</button>
+                            </form>
+                            <?php endif; ?>
                         </article>
                     <?php endforeach; ?>
                 </div>
@@ -494,31 +620,131 @@ $oldInput = old_input_get();
                     <p class="eyebrow">Admin workspace</p>
                     <h2 id="moderation-title">Moderation &amp; audit</h2>
                 </div>
-                <span class="badge"><?php echo $deletedTotal; ?> in trash</span>
+                <span class="badge"><?php echo $openReportTotal; ?> open report<?php echo $openReportTotal === 1 ? '' : 's'; ?></span>
             </div>
 
-            <details class="admin-panel"<?php echo $deletedTotal > 0 ? ' open' : ''; ?>>
-                <summary>Recently deleted messages</summary>
-                <?php if ($deletedMessages): ?>
+            <div class="moderation-stats" aria-label="Message status totals">
+                <?php foreach ($moderationCounts as $status => $count): ?>
+                <div><strong><?php echo $count; ?></strong><span><?php echo e($statusLabels[$status]); ?></span></div>
+                <?php endforeach; ?>
+            </div>
+
+            <details class="admin-panel"<?php echo $openReportTotal > 0 ? ' open' : ''; ?>>
+                <summary>Abuse reports · <?php echo $openReportTotal; ?> open</summary>
+                <?php if ($openReports): ?>
                     <div class="moderation-list">
-                    <?php foreach ($deletedMessages as $deleted): ?>
-                        <article class="moderation-item">
+                    <?php foreach ($openReports as $report): ?>
+                        <article class="moderation-item report-item">
                             <div>
-                                <strong><?php echo e($deleted['author'] ?: 'Anonymous'); ?></strong>
-                                <span>#<?php echo (int) $deleted['id']; ?> · deleted <?php echo e(time_ago((string) $deleted['deleted_at'])); ?></span>
+                                <strong><?php echo e($reportLabels[$report['category']] ?? 'Policy concern'); ?></strong>
+                                <span>Report #<?php echo (int) $report['id']; ?> · <?php echo e(time_ago('@' . $report['created_at'])); ?></span>
                             </div>
-                            <p><?php echo e($deleted['content']); ?></p>
+                            <p><span class="status-pill status-<?php echo e($report['message_status']); ?>"><?php echo e($report['message_status']); ?></span>
+                                Message #<?php echo (int) $report['message_id']; ?> by <?php echo e($report['author'] ?: 'Anonymous'); ?><br>
+                                <?php echo e($report['content']); ?></p>
+                            <div class="review-actions">
                             <form method="POST">
                                 <?php echo csrf_field(); ?>
-                                <input type="hidden" name="action" value="restore">
-                                <input type="hidden" name="id" value="<?php echo (int) $deleted['id']; ?>">
-                                <button class="btn secondary compact" type="submit"><?php echo icon('restore'); ?> Restore</button>
+                                <input type="hidden" name="action" value="review_report">
+                                <input type="hidden" name="id" value="<?php echo (int) $report['id']; ?>">
+                                <input type="hidden" name="decision" value="resolved">
+                                <button class="btn secondary compact" type="submit">Resolve</button>
                             </form>
+                            <form method="POST">
+                                <?php echo csrf_field(); ?>
+                                <input type="hidden" name="action" value="review_report">
+                                <input type="hidden" name="id" value="<?php echo (int) $report['id']; ?>">
+                                <input type="hidden" name="decision" value="dismissed">
+                                <button class="linkbtn compact" type="submit">Dismiss</button>
+                            </form>
+                            </div>
                         </article>
                     <?php endforeach; ?>
                     </div>
                 <?php else: ?>
-                    <p class="panel-empty">Moderation trash is empty.</p>
+                    <p class="panel-empty">No open reports.</p>
+                <?php endif; ?>
+            </details>
+
+            <details class="admin-panel"<?php echo $moderatedMessages ? ' open' : ''; ?>>
+                <summary>Moderated messages · <?php echo count($moderatedMessages); ?> recent</summary>
+                <?php if ($moderatedMessages): ?>
+                    <div class="moderation-list">
+                    <?php foreach ($moderatedMessages as $moderated): ?>
+                        <article class="moderation-item">
+                            <div>
+                                <strong><?php echo e($moderated['author'] ?: 'Anonymous'); ?></strong>
+                                <span>#<?php echo (int) $moderated['id']; ?> ·
+                                    <span class="status-pill status-<?php echo e($moderated['status']); ?>"><?php echo e($moderated['status']); ?></span>
+                                    <?php echo e($reasonLabels[$moderated['moderation_reason']] ?? 'Unspecified'); ?>
+                                </span>
+                            </div>
+                            <p><?php echo e($moderated['content']); ?></p>
+                            <div class="review-actions moderation-actions">
+                            <form method="POST">
+                                <?php echo csrf_field(); ?>
+                                <input type="hidden" name="action" value="moderate">
+                                <input type="hidden" name="id" value="<?php echo (int) $moderated['id']; ?>">
+                                <input type="hidden" name="status" value="published">
+                                <input type="hidden" name="reason" value="restored">
+                                <button class="btn secondary compact" type="submit"><?php echo icon('restore'); ?> Publish</button>
+                            </form>
+                            <form method="POST" class="moderation-control">
+                                <?php echo csrf_field(); ?>
+                                <input type="hidden" name="action" value="moderate">
+                                <input type="hidden" name="id" value="<?php echo (int) $moderated['id']; ?>">
+                                <label>
+                                    <span>Move to</span>
+                                    <select class="select" name="status" required>
+                                        <?php foreach ($statusLabels as $value => $label): ?>
+                                            <?php if ($value !== 'published' && $value !== $moderated['status']): ?>
+                                            <option value="<?php echo e($value); ?>"><?php echo e($label); ?></option>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </label>
+                                <label>
+                                    <span>Reason</span>
+                                    <select class="select" name="reason" required>
+                                        <?php foreach ($reasonLabels as $value => $label): ?>
+                                            <?php if ($value !== 'restored'): ?>
+                                            <option value="<?php echo e($value); ?>"><?php echo e($label); ?></option>
+                                            <?php endif; ?>
+                                        <?php endforeach; ?>
+                                    </select>
+                                </label>
+                                <button class="btn secondary compact" type="submit">Update</button>
+                            </form>
+                            </div>
+                        </article>
+                    <?php endforeach; ?>
+                    </div>
+                <?php else: ?>
+                    <p class="panel-empty">No messages are currently moderated.</p>
+                <?php endif; ?>
+            </details>
+
+            <details class="admin-panel">
+                <summary>Append-only admin audit</summary>
+                <?php if ($adminAuditEvents): ?>
+                    <ol class="audit-list">
+                    <?php foreach ($adminAuditEvents as $event): ?>
+                        <li>
+                            <span class="audit-outcome <?php echo e($event['outcome']); ?>"><?php echo e($event['outcome']); ?></span>
+                            <code><?php echo e($event['event_type']); ?></code>
+                            <span>
+                                <?php if ($event['related_id'] !== null): ?>#<?php echo (int) $event['related_id']; ?><?php endif; ?>
+                                <?php if ($event['previous_state'] !== null && $event['new_state'] !== null): ?>
+                                    · <?php echo e($event['previous_state']); ?> → <?php echo e($event['new_state']); ?>
+                                <?php endif; ?>
+                                <?php if ($event['reason_code'] !== null): ?> · <?php echo e($event['reason_code']); ?><?php endif; ?>
+                            </span>
+                            <time datetime="<?php echo e(gmdate('c', (int) $event['created_at'])); ?>"><?php echo e(time_ago('@' . $event['created_at'])); ?></time>
+                        </li>
+                    <?php endforeach; ?>
+                    </ol>
+                <?php else: ?>
+                    <p class="panel-empty">No admin audit events recorded yet.</p>
                 <?php endif; ?>
             </details>
 
@@ -555,9 +781,16 @@ $oldInput = old_input_get();
         </details>
         <?php endif; ?>
 
-        <details class="privacy">
-            <summary>Privacy &amp; data use</summary>
+        <section class="site-info" id="about" aria-labelledby="about-title">
+            <h2 id="about-title">About this space</h2>
+            <p>A small public guestbook operated on Micuțu infrastructure. Be kind, avoid personal information, and use Report when a public message needs review.</p>
+            <p>Security concerns can be reported using the contact route in <a href="/.well-known/security.txt">security.txt</a>.</p>
+        </section>
+
+        <details class="privacy" id="privacy">
+            <summary>Privacy, moderation &amp; data use</summary>
             <p>Messages and names are public. A keyed, non-reversible network identifier is used for abuse prevention and detached from messages after 24 hours. Security events are retained for up to 90 days.</p>
+            <p>Abuse reports contain only the selected category and message number. They do not store a reporter identifier or free-text explanation. Reviewed reports are deleted after 90 days; minimal append-only admin actions remain for accountability.</p>
             <?php if (ANALYTICS_WEBSITE_ID !== ''): ?>
             <p>This deployment loads self-hosted analytics from <code>analytics.micutu.com</code>. It respects Do Not Track, excludes query strings and URL fragments, and records aggregate page and performance data.</p>
             <?php else: ?>
