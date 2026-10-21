@@ -9,7 +9,8 @@ Group=php-guestbook
 UMask=0077
 WorkingDirectory=/srv/canary/php.micutu.com/current
 Environment=APP_STORAGE_DIR=/srv/canary/php.micutu.com/php_micutu_app_storage
-ExecStart=/usr/bin/php /srv/canary/php.micutu.com/current/scripts/maintenance.php
+# PCRE JIT allocates executable memory, which this unit intentionally forbids.
+ExecStart=/usr/bin/php -d pcre.jit=0 /srv/canary/php.micutu.com/current/scripts/maintenance.php
 NoNewPrivileges=yes
 PrivateTmp=yes
 PrivateDevices=yes
