@@ -332,6 +332,227 @@ function security_event(
     ]);
 }
 
+/** Allowed public-report categories. Values are stored instead of free-form PII. */
+function abuse_report_categories(): array
+{
+    return ['spam', 'harassment', 'privacy', 'other'];
+}
+
+/** Allowed lifecycle states for a message. */
+function moderation_states(): array
+{
+    return ['pending', 'published', 'hidden', 'deleted', 'spam'];
+}
+
+/** Controlled moderation reasons; arbitrary admin notes are deliberately excluded. */
+function moderation_reasons(): array
+{
+    return ['spam', 'harassment', 'privacy', 'policy', 'requested', 'other', 'restored'];
+}
+
+/** Read and validate a scalar enum input without coercion. */
+function enum_input(array $source, string $key, array $allowed): ?string
+{
+    $value = string_input($source, $key);
+    return $value !== null && in_array($value, $allowed, true) ? $value : null;
+}
+
+/** Append a minimal, immutable admin audit event. */
+function admin_audit_event(
+    PDO $pdo,
+    string $eventType,
+    string $outcome,
+    string $actorHash,
+    ?int $relatedId = null,
+    ?string $previousState = null,
+    ?string $newState = null,
+    ?string $reasonCode = null,
+    ?int $now = null
+): void {
+    $validStates = moderation_states();
+    if (preg_match('/\A[a-z][a-z0-9_.-]{1,63}\z/D', $eventType) !== 1
+        || !in_array($outcome, ['success', 'failure', 'blocked'], true)
+        || preg_match('/\A[0-9a-f]{64}\z/D', $actorHash) !== 1
+        || ($previousState !== null && !in_array($previousState, $validStates, true))
+        || ($newState !== null && !in_array($newState, $validStates, true))
+        || ($reasonCode !== null && !in_array($reasonCode, moderation_reasons(), true))) {
+        throw new InvalidArgumentException('Invalid admin audit event');
+    }
+
+    $stmt = $pdo->prepare(
+        'INSERT INTO admin_audit_events
+            (event_type, outcome, actor_hash, related_id, previous_state,
+             new_state, reason_code, created_at)
+         VALUES (:event, :outcome, :actor, :related, :previous, :new, :reason, :created)'
+    );
+    $stmt->execute([
+        ':event' => $eventType,
+        ':outcome' => $outcome,
+        ':actor' => $actorHash,
+        ':related' => $relatedId,
+        ':previous' => $previousState,
+        ':new' => $newState,
+        ':reason' => $reasonCode,
+        ':created' => $now ?? time(),
+    ]);
+}
+
+/**
+ * Move a message between moderation states and write its audit event atomically.
+ * Returning false means the message does not exist or is already in that state.
+ */
+function moderate_message(
+    PDO $pdo,
+    int $messageId,
+    string $newState,
+    string $reasonCode,
+    string $actorHash,
+    ?int $now = null
+): bool {
+    if ($messageId < 1
+        || !in_array($newState, moderation_states(), true)
+        || !in_array($reasonCode, moderation_reasons(), true)) {
+        throw new InvalidArgumentException('Invalid moderation transition');
+    }
+    $now ??= time();
+
+    $pdo->exec('BEGIN IMMEDIATE');
+    try {
+        $lookup = $pdo->prepare('SELECT status FROM messages WHERE id = :id');
+        $lookup->execute([':id' => $messageId]);
+        $previousState = $lookup->fetchColumn();
+        if ($previousState === false || $previousState === $newState) {
+            $pdo->exec('COMMIT');
+            return false;
+        }
+        if (!is_string($previousState) || !in_array($previousState, moderation_states(), true)) {
+            throw new RuntimeException('Message has an invalid moderation state');
+        }
+
+        $update = $pdo->prepare(
+            "UPDATE messages
+             SET status = :new_state,
+                 moderation_reason = :reason,
+                 moderated_at = datetime(:now, 'unixepoch'),
+                 deleted_at = CASE
+                     WHEN :new_state = 'deleted' THEN datetime(:now, 'unixepoch')
+                     ELSE NULL
+                 END,
+                 ip_hash = CASE WHEN :new_state = 'published' THEN ip_hash ELSE NULL END
+             WHERE id = :id AND status = :previous_state"
+        );
+        $update->execute([
+            ':new_state' => $newState,
+            ':reason' => $reasonCode,
+            ':now' => $now,
+            ':id' => $messageId,
+            ':previous_state' => $previousState,
+        ]);
+        if ($update->rowCount() !== 1) {
+            throw new RuntimeException('Concurrent moderation transition');
+        }
+
+        $eventType = match ($newState) {
+            'published' => 'message.restore',
+            'hidden' => 'message.hide',
+            'deleted' => 'message.delete',
+            'spam' => 'message.spam',
+            'pending' => 'message.pending',
+        };
+        admin_audit_event(
+            $pdo,
+            $eventType,
+            'success',
+            $actorHash,
+            $messageId,
+            $previousState,
+            $newState,
+            $reasonCode,
+            $now
+        );
+        $pdo->exec('COMMIT');
+        return true;
+    } catch (Throwable $e) {
+        try {
+            $pdo->exec('ROLLBACK');
+        } catch (Throwable) {
+            // Preserve the original exception.
+        }
+        throw $e;
+    }
+}
+
+/** Create a category-only report if the referenced message is still public. */
+function create_abuse_report(PDO $pdo, int $messageId, string $category, ?int $now = null): bool
+{
+    if ($messageId < 1 || !in_array($category, abuse_report_categories(), true)) {
+        throw new InvalidArgumentException('Invalid abuse report');
+    }
+    $stmt = $pdo->prepare(
+        "INSERT INTO abuse_reports (message_id, category, created_at)
+         SELECT id, :category, :created FROM messages
+         WHERE id = :message_id AND status = 'published'"
+    );
+    $stmt->execute([
+        ':category' => $category,
+        ':created' => $now ?? time(),
+        ':message_id' => $messageId,
+    ]);
+    return $stmt->rowCount() === 1;
+}
+
+/** Resolve or dismiss a queued report and append its admin audit event atomically. */
+function review_abuse_report(
+    PDO $pdo,
+    int $reportId,
+    string $decision,
+    string $actorHash,
+    ?int $now = null
+): bool {
+    if ($reportId < 1 || !in_array($decision, ['resolved', 'dismissed'], true)) {
+        throw new InvalidArgumentException('Invalid report review');
+    }
+    $now ??= time();
+
+    $pdo->exec('BEGIN IMMEDIATE');
+    try {
+        $update = $pdo->prepare(
+            "UPDATE abuse_reports
+             SET status = :decision, reviewed_at = :reviewed
+             WHERE id = :id AND status = 'open'"
+        );
+        $update->execute([
+            ':decision' => $decision,
+            ':reviewed' => $now,
+            ':id' => $reportId,
+        ]);
+        if ($update->rowCount() !== 1) {
+            $pdo->exec('COMMIT');
+            return false;
+        }
+        admin_audit_event(
+            $pdo,
+            'report.' . $decision,
+            'success',
+            $actorHash,
+            $reportId,
+            null,
+            null,
+            null,
+            $now
+        );
+        $pdo->exec('COMMIT');
+        return true;
+    } catch (Throwable $e) {
+        try {
+            $pdo->exec('ROLLBACK');
+        } catch (Throwable) {
+            // Preserve the original exception.
+        }
+        throw $e;
+    }
+}
+
 /** Bound pseudonymous limiter/event retention; intended for scheduled maintenance. */
 function prune_security_records(PDO $pdo, ?int $now = null): array
 {
@@ -340,6 +561,11 @@ function prune_security_records(PDO $pdo, ?int $now = null): array
     $limits->execute([':cutoff' => $now - 7 * 86400]);
     $events = $pdo->prepare('DELETE FROM security_events WHERE created_at < :cutoff');
     $events->execute([':cutoff' => $now - 90 * 86400]);
+    $reports = $pdo->prepare(
+        "DELETE FROM abuse_reports
+         WHERE status IN ('resolved', 'dismissed') AND reviewed_at < :cutoff"
+    );
+    $reports->execute([':cutoff' => $now - 90 * 86400]);
     // Posting limits only need a one-hour identifier. Keep a 24-hour margin for
     // troubleshooting, then irreversibly detach the keyed identifier from content.
     $identifiers = $pdo->prepare(
@@ -350,6 +576,7 @@ function prune_security_records(PDO $pdo, ?int $now = null): array
     return [
         'rate_limits' => $limits->rowCount(),
         'security_events' => $events->rowCount(),
+        'abuse_reports' => $reports->rowCount(),
         'message_identifiers' => $identifiers->rowCount(),
     ];
 }
