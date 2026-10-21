@@ -136,46 +136,49 @@ const ADMIN_IDLE_SECONDS  = 1800; // 30 minutes
 const ADMIN_MAX_SECONDS   = 43200; // 12 hours
 
 // ---------------------------------------------------------------------------
-// Session hardening
+// Session hardening. CLI maintenance and migration jobs do not have a browser
+// session and must not create files in PHP's shared session directory.
 // ---------------------------------------------------------------------------
-ini_set('session.use_strict_mode', '1');
-ini_set('session.use_only_cookies', '1');
-ini_set('session.cookie_httponly', '1');
-$__secureCookie = ($__originParts['scheme'] ?? 'https') === 'https';
-ini_set('session.cookie_secure', $__secureCookie ? '1' : '0');
-ini_set('session.cookie_samesite', 'Strict');
-session_set_cookie_params([
-    'lifetime' => 0,
-    'path'     => '/',
-    'secure'   => $__secureCookie,
-    'httponly' => true,
-    'samesite' => 'Strict',
-]);
-session_name('gbsid');
-session_start();
+if (PHP_SAPI !== 'cli') {
+    ini_set('session.use_strict_mode', '1');
+    ini_set('session.use_only_cookies', '1');
+    ini_set('session.cookie_httponly', '1');
+    $__secureCookie = ($__originParts['scheme'] ?? 'https') === 'https';
+    ini_set('session.cookie_secure', $__secureCookie ? '1' : '0');
+    ini_set('session.cookie_samesite', 'Strict');
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path'     => '/',
+        'secure'   => $__secureCookie,
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
+    session_name('gbsid');
+    session_start();
 
-$__now = time();
-if (!empty($_SESSION['is_admin'])) {
-    $__authenticatedAt = filter_var($_SESSION['admin_authenticated_at'] ?? null, FILTER_VALIDATE_INT);
-    $__lastSeenAt = filter_var($_SESSION['admin_last_seen_at'] ?? null, FILTER_VALIDATE_INT);
-    $__expired = $__authenticatedAt === false
-        || $__lastSeenAt === false
-        || $__now - $__lastSeenAt > ADMIN_IDLE_SECONDS
-        || $__now - $__authenticatedAt > ADMIN_MAX_SECONDS;
+    $__now = time();
+    if (!empty($_SESSION['is_admin'])) {
+        $__authenticatedAt = filter_var($_SESSION['admin_authenticated_at'] ?? null, FILTER_VALIDATE_INT);
+        $__lastSeenAt = filter_var($_SESSION['admin_last_seen_at'] ?? null, FILTER_VALIDATE_INT);
+        $__expired = $__authenticatedAt === false
+            || $__lastSeenAt === false
+            || $__now - $__lastSeenAt > ADMIN_IDLE_SECONDS
+            || $__now - $__authenticatedAt > ADMIN_MAX_SECONDS;
 
-    if ($__expired) {
-        $_SESSION = [];
-        session_regenerate_id(true);
-        $_SESSION['flash'] = [
-            'type' => 'error',
-            'message' => 'Your admin session expired. Please sign in again.',
-        ];
-    } else {
-        $_SESSION['admin_last_seen_at'] = $__now;
-        $__lastRotation = (int) ($_SESSION['admin_session_rotated_at'] ?? 0);
-        if ($__now - $__lastRotation >= 900) {
+        if ($__expired) {
+            $_SESSION = [];
             session_regenerate_id(true);
-            $_SESSION['admin_session_rotated_at'] = $__now;
+            $_SESSION['flash'] = [
+                'type' => 'error',
+                'message' => 'Your admin session expired. Please sign in again.',
+            ];
+        } else {
+            $_SESSION['admin_last_seen_at'] = $__now;
+            $__lastRotation = (int) ($_SESSION['admin_session_rotated_at'] ?? 0);
+            if ($__now - $__lastRotation >= 900) {
+                session_regenerate_id(true);
+                $_SESSION['admin_session_rotated_at'] = $__now;
+            }
         }
     }
 }

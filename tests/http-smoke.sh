@@ -32,8 +32,15 @@ export ADMIN_PASSWORD_HASH
 export APP_ORIGIN="http://127.0.0.1:${port}"
 export APP_STORAGE_DIR="${tmp_dir}/storage"
 mkdir -p "${APP_STORAGE_DIR}"
+cli_session_dir="${tmp_dir}/cli-sessions"
+mkdir -p "${cli_session_dir}"
 
-php "${repo_dir}/scripts/migrate.php" >"${tmp_dir}/migration.log"
+php -d "session.save_path=${cli_session_dir}" \
+    "${repo_dir}/scripts/migrate.php" >"${tmp_dir}/migration.log"
+if find "${cli_session_dir}" -type f -print -quit | grep --quiet .; then
+    echo 'CLI migration unexpectedly created a PHP session.' >&2
+    exit 1
+fi
 php -S "127.0.0.1:${port}" -t "${repo_dir}" >"${tmp_dir}/server.log" 2>&1 &
 server_pid=$!
 
