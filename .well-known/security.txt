@@ -1,0 +1,5 @@
+Contact: https://github.com/Alexandru2984/php/security/advisories/new
+Canonical: https://php.micutu.com/.well-known/security.txt
+Policy: https://github.com/Alexandru2984/php/blob/main/SECURITY.md
+Expires: 2027-10-21T00:00:00Z
+Preferred-Languages: ro, en

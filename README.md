@@ -58,6 +58,9 @@ bash tests/backup-smoke.sh
 shellcheck scripts/*.sh tests/*.sh
 ```
 
+`bash scripts/ci.sh` runs the complete local suite. The same command runs in GitHub
+Actions with read-only token permissions and a commit-pinned checkout action.
+
 Reviewed production templates and the isolation rollout are in [`ops/`](ops/README.md).
 
 ## Deployment
