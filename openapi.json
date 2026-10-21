@@ -1,0 +1,319 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Micuțu Guestbook API",
+    "version": "1.0.0",
+    "description": "Read-only, sessionless access to published guestbook messages. Cross-origin access is not granted."
+  },
+  "servers": [
+    {
+      "url": "https://php.micutu.com"
+    }
+  ],
+  "security": [],
+  "paths": {
+    "/api/v1/messages": {
+      "get": {
+        "summary": "List published messages",
+        "operationId": "listMessages",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/IfNoneMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "$ref": "#/components/responses/MessagePage"
+          },
+          "304": {
+            "description": "The selected page has not changed. The response has no body.",
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControl"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      },
+      "head": {
+        "summary": "Inspect a published-message page",
+        "operationId": "headMessages",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/Limit"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/IfNoneMatch"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The same headers as GET, without a response body.",
+            "headers": {
+              "ETag": {
+                "$ref": "#/components/headers/ETag"
+              },
+              "Cache-Control": {
+                "$ref": "#/components/headers/CacheControl"
+              },
+              "Vary": {
+                "$ref": "#/components/headers/Vary"
+              }
+            }
+          },
+          "304": {
+            "description": "The selected page has not changed."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "Limit": {
+        "name": "limit",
+        "in": "query",
+        "description": "Maximum number of published messages returned.",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "default": 20
+        }
+      },
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "description": "Opaque next_cursor from the preceding response. Cursors are bound to the server secret and must not be modified.",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 384
+        }
+      },
+      "IfNoneMatch": {
+        "name": "If-None-Match",
+        "in": "header",
+        "description": "ETag from a previous GET or HEAD request.",
+        "required": false,
+        "schema": {
+          "type": "string",
+          "maxLength": 8192
+        }
+      }
+    },
+    "headers": {
+      "ETag": {
+        "description": "Strong SHA-256 entity tag for this exact response document.",
+        "schema": {
+          "type": "string",
+          "example": "\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\""
+        }
+      },
+      "CacheControl": {
+        "description": "Public short-lived cache policy for published data.",
+        "schema": {
+          "type": "string",
+          "example": "public, max-age=30, stale-while-revalidate=60"
+        }
+      },
+      "Vary": {
+        "description": "Representation variance used by compression-aware caches.",
+        "schema": {
+          "type": "string",
+          "example": "Accept-Encoding"
+        }
+      }
+    },
+    "schemas": {
+      "Message": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "author",
+          "content",
+          "created_at",
+          "url"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "author": {
+            "type": "string",
+            "maxLength": 60
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "Pagination": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "limit",
+          "has_more",
+          "next_cursor"
+        ],
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "MessagePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "api_version",
+          "data",
+          "pagination"
+        ],
+        "properties": {
+          "api_version": {
+            "const": "1.0"
+          },
+          "data": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "code",
+              "message"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "responses": {
+      "MessagePage": {
+        "description": "A stable, descending page containing published messages only.",
+        "headers": {
+          "ETag": {
+            "$ref": "#/components/headers/ETag"
+          },
+          "Cache-Control": {
+            "$ref": "#/components/headers/CacheControl"
+          },
+          "Vary": {
+            "$ref": "#/components/headers/Vary"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/MessagePage"
+            }
+          }
+        }
+      },
+      "BadRequest": {
+        "description": "The query contains an unsupported parameter, limit or cursor.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      },
+      "MethodNotAllowed": {
+        "description": "Only GET and HEAD are supported.",
+        "headers": {
+          "Allow": {
+            "description": "Allowed request methods.",
+            "schema": {
+              "type": "string",
+              "const": "GET, HEAD"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

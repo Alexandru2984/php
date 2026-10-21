@@ -52,7 +52,8 @@ gzip -9 "${snapshot}"
 mv "${snapshot}.gz" "${backup_dir}/database-20260101T000000Z.sqlite.gz"
 chmod 0600 "${backup_dir}/database-20260101T000000Z.sqlite.gz"
 
-php -S "127.0.0.1:${port}" -t "${repo_dir}" >"${tmp_dir}/server.log" 2>&1 &
+php -S "127.0.0.1:${port}" -t "${repo_dir}" "${repo_dir}/tests/router.php" \
+    >"${tmp_dir}/server.log" 2>&1 &
 server_pid=$!
 for _ in {1..40}; do
     if curl --silent --fail --output /dev/null "${APP_ORIGIN}/"; then

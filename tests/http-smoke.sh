@@ -55,7 +55,7 @@ if find "${cli_session_dir}" -type f -print -quit | grep --quiet .; then
     exit 1
 fi
 php -d "session.save_path=${web_session_dir}" \
-    -S "127.0.0.1:${port}" -t "${repo_dir}" "${repo_dir}/index.php" \
+    -S "127.0.0.1:${port}" -t "${repo_dir}" "${repo_dir}/tests/router.php" \
     >"${tmp_dir}/server.log" 2>&1 &
 server_pid=$!
 
@@ -118,6 +118,8 @@ if find "${web_session_dir}" -type f -print -quit | grep --quiet .; then
     echo 'Sessionless API unexpectedly created a PHP session.' >&2
     exit 1
 fi
+openapi_body="$(curl --silent --show-error --fail "${APP_ORIGIN}/openapi.json")"
+grep --quiet '"/api/v1/messages"' <<<"${openapi_body}"
 
 cookie_jar="${tmp_dir}/cookies.txt"
 html="$(curl --silent --show-error --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/")"
@@ -227,6 +229,10 @@ grep --quiet 'Hello from the isolated smoke test' <<<"${rss}"
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
 php -r '$xml = simplexml_load_string(stream_get_contents(STDIN)); exit($xml === false ? 1 : 0);' <<<"${rss}"
+
+legacy_headers="$(curl --silent --show-error --head "${APP_ORIGIN}/?format=json")"
+grep --ignore-case --quiet '^Deprecation: true' <<<"${legacy_headers}"
+grep --ignore-case --quiet '^Link: </api/v1/messages>; rel="successor-version"' <<<"${legacy_headers}"
 
 login_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/")"
 login_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${login_html}" | head -n 1)"

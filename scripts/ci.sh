@@ -16,6 +16,7 @@ php -r '$css=file_get_contents("assets/style.css"); if(substr_count($css,"{")!==
 
 shellcheck -x scripts/*.sh tests/*.sh ops/scripts/*.sh
 php tests/run.php
+php tests/openapi-smoke.php
 bash tests/http-smoke.sh
 bash tests/backup-smoke.sh
 bash tests/healthcheck-smoke.sh

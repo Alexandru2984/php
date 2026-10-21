@@ -119,20 +119,36 @@ if [[ -n "${analytics_id}" ]]; then
 fi
 unset html
 
+api_url="${base_url}/api/v1/messages?limit=1"
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
-if ! curl "${curl_args[@]}" "${base_url}/?format=json" | php -r '
+if ! curl "${curl_args[@]}" "${api_url}" | php -r '
     $value = json_decode(stream_get_contents(STDIN), true, 8, JSON_THROW_ON_ERROR);
+    $pagination = $value["pagination"] ?? null;
     $valid = is_array($value)
-        && isset($value["total"], $value["page"], $value["pages"], $value["messages"])
-        && is_int($value["total"])
-        && is_int($value["page"])
-        && is_int($value["pages"])
-        && is_array($value["messages"]);
+        && ($value["api_version"] ?? null) === "1.0"
+        && isset($value["data"])
+        && is_array($value["data"])
+        && count($value["data"]) <= 1
+        && is_array($pagination)
+        && ($pagination["limit"] ?? null) === 1
+        && isset($pagination["has_more"])
+        && is_bool($pagination["has_more"])
+        && array_key_exists("next_cursor", $pagination)
+        && ($pagination["next_cursor"] === null || is_string($pagination["next_cursor"]));
     exit($valid ? 0 : 1);
 '; then
     fail api schema-invalid
 fi
+
+api_headers="$(curl "${curl_args[@]}" --head "${api_url}")" \
+    || fail api headers-unavailable
+api_headers_lower="${api_headers,,}"
+[[ "${api_headers_lower}" == *'cache-control: public, max-age=30, stale-while-revalidate=60'* ]] \
+    || fail api cache-policy-invalid
+[[ "${api_headers_lower}" == *'etag: "'* ]] || fail api etag-missing
+[[ "${api_headers_lower}" != *$'\nset-cookie:'* ]] || fail api session-cookie-present
+unset api_headers api_headers_lower
 
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016

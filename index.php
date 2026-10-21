@@ -418,6 +418,8 @@ if ($format === null && array_key_exists('format', $_GET)) {
 if ($format === 'json') {
     header('Content-Type: application/json; charset=utf-8');
     header('Cache-Control: private, no-store');
+    header('Deprecation: true');
+    header('Link: </api/v1/messages>; rel="successor-version"');
     echo json_encode([
         'total'    => $total,
         'page'     => $page,
@@ -867,6 +869,7 @@ $reportLabels = [
         <section class="site-info" id="about" aria-labelledby="about-title">
             <h2 id="about-title">About this space</h2>
             <p>A small public guestbook operated on Micuțu infrastructure. Be kind, avoid personal information, and use Report when a public message needs review.</p>
+            <p>Published messages are also available through the <a href="/api/v1/messages">sessionless JSON API</a> with a machine-readable <a href="/openapi.json">OpenAPI contract</a>.</p>
             <p>Security concerns can be reported using the contact route in <a href="/.well-known/security.txt">security.txt</a>.</p>
         </section>
 
