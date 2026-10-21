@@ -342,7 +342,13 @@ $oldInput = old_input_get();
     <script src="<?php echo e(asset('assets/theme-init.js')); ?>"></script>
     <script defer src="<?php echo e(asset('assets/app.js')); ?>"></script>
     <?php if (ANALYTICS_WEBSITE_ID !== ''): ?>
-    <script defer src="https://analytics.micutu.com/script.js" data-website-id="<?php echo e(ANALYTICS_WEBSITE_ID); ?>"></script>
+    <script defer src="https://analytics.micutu.com/script.js"
+            data-website-id="<?php echo e(ANALYTICS_WEBSITE_ID); ?>"
+            data-domains="php.micutu.com"
+            data-do-not-track="true"
+            data-exclude-search="true"
+            data-exclude-hash="true"
+            data-performance="true"></script>
     <?php endif; ?>
 </head>
 <body>
@@ -553,7 +559,7 @@ $oldInput = old_input_get();
             <summary>Privacy &amp; data use</summary>
             <p>Messages and names are public. A keyed, non-reversible network identifier is used for abuse prevention and detached from messages after 24 hours. Security events are retained for up to 90 days.</p>
             <?php if (ANALYTICS_WEBSITE_ID !== ''): ?>
-            <p>This deployment also loads first-party analytics from <code>analytics.micutu.com</code>.</p>
+            <p>This deployment loads self-hosted analytics from <code>analytics.micutu.com</code>. It respects Do Not Track, excludes query strings and URL fragments, and records aggregate page and performance data.</p>
             <?php else: ?>
             <p>Optional analytics is disabled on this deployment.</p>
             <?php endif; ?>

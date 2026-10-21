@@ -25,12 +25,23 @@ config_exit=$?
 set -e
 [[ "${config_exit}" == 78 ]]
 
+set +e
+APP_ENV=testing \
+APP_SECRET=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+ANALYTICS_WEBSITE_ID=not-a-uuid \
+php -r "define('GUESTBOOK_APP', true); require '${repo_dir}/config.php';" \
+    >"${tmp_dir}/invalid-analytics.log" 2>&1
+analytics_config_exit=$?
+set -e
+[[ "${analytics_config_exit}" == 78 ]]
+
 export APP_ENV=testing
 export APP_SECRET=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 ADMIN_PASSWORD_HASH="$(php -r 'echo password_hash("smoke-test-password", PASSWORD_BCRYPT, ["cost" => 4]);')"
 export ADMIN_PASSWORD_HASH
 export APP_ORIGIN="http://127.0.0.1:${port}"
 export APP_STORAGE_DIR="${tmp_dir}/storage"
+export ANALYTICS_WEBSITE_ID=c4e3a772-26b3-47e7-afec-b82097684551
 mkdir -p "${APP_STORAGE_DIR}"
 cli_session_dir="${tmp_dir}/cli-sessions"
 mkdir -p "${cli_session_dir}"
@@ -55,6 +66,12 @@ cookie_jar="${tmp_dir}/cookies.txt"
 html="$(curl --silent --show-error --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/")"
 csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${html}" | head -n 1)"
 [[ "${csrf}" =~ ^[0-9a-f]{64}$ ]]
+grep --quiet 'data-website-id="c4e3a772-26b3-47e7-afec-b82097684551"' <<<"${html}"
+grep --quiet 'data-domains="php.micutu.com"' <<<"${html}"
+grep --quiet 'data-do-not-track="true"' <<<"${html}"
+grep --quiet 'data-exclude-search="true"' <<<"${html}"
+grep --quiet 'data-exclude-hash="true"' <<<"${html}"
+grep --quiet 'data-performance="true"' <<<"${html}"
 
 request_code() {
     curl --silent --show-error --output /dev/null --write-out '%{http_code}' "$@"
