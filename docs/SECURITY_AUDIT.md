@@ -103,12 +103,12 @@ magnitude` for credential takeover, cross-vhost compromise and data loss.
 
 ### Detection
 
-- Current MTTD: unknown/unbounded; logs without alerting are not detection.
-- Target MTTD: 15 minutes for admin brute force or integrity changes; one hour for
-  elevated 5xx/429 rates, backup failure or database integrity failure.
-- Required alerts: repeated login failures across sessions/IPs, admin login and
-  moderation events, unexpected PHP files or release hashes, backup failure/age,
-  disk pressure, SQLite corruption, and sustained 5xx/429 anomalies.
+- Current MTTD after the monitoring rollout: about five minutes for public health,
+  permission/release drift, SQLite integrity, backup age, disk pressure and five admin
+  failures in 15 minutes. Watched systemd failures dispatch immediately. The existing
+  Cloudflare bot checks traffic spikes and edge 5xx responses every five minutes.
+- Remaining alerts: moderation anomalies, release-hash attestation and measured
+  notification-delivery SLOs.
 
 ### Response
 
@@ -127,7 +127,10 @@ assessment remains the controller's responsibility.
 
 ### Vendors and supply chain
 
-- Cloudflare: DNS/proxy/WAF/challenge injection and edge telemetry.
+- Cloudflare: DNS/proxy/WAF/challenge injection, edge telemetry and the existing
+  five-minute Telegram alert/report bot.
+- Telegram: operational alert delivery; payloads are restricted to non-visitor
+  component state and fixed reason codes.
 - Analytics service at `analytics.micutu.com`: executable JavaScript and visitor
   telemetry; ownership, software version, retention and DPA need recording.
 - VPS, OS packages and certificate automation: hosting and infrastructure access.

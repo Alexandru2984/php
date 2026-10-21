@@ -14,9 +14,10 @@ criteria.
 - **Partially delivered:** recoverable moderation and identifier minimisation from
   Stage 3; RSS/permalinks from Stage 5; responsive/accessibility foundations from
   Stage 6; pinned CI, `security.txt` and hardened systemd jobs from Stage 8.
-- **Next priority:** alerting and incident response, privacy/about/report-abuse UI,
+- **Next priority:** privacy/about/report-abuse UI,
   moderation states/queue, off-host encrypted backup plus a production-snapshot
-  restore drill, browser accessibility checks, and API endpoints that avoid sessions.
+  restore drill, an incident-response tabletop, browser accessibility checks, and API
+  endpoints that avoid sessions.
 - **Still deferred:** Stage 7 community features and the explicitly deferred features
   at the end of this document. They must not outrun the remaining privacy, abuse and
   observability controls.

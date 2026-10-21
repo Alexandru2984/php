@@ -67,3 +67,32 @@ compresses atomically, applies mode `0600`, serializes overlapping runs and keep
 days by default. `tests/backup-smoke.sh` proves a disposable restore. Production still
 needs an encrypted off-host copy, a defined RPO/RTO, monitoring for backup age/failure,
 and a scheduled restore drill.
+
+## Monitoring and Telegram pager
+
+The health probe is intentionally independent of the application notification path.
+It reuses the host's existing `swift-vapor-alert@.service` and
+`swift-vapor-resolved@.service` pager templates, which own encrypted Telegram
+credentials, deduplication and recovery state. Verify those templates and their helper
+before enabling the guestbook timer; no Telegram secret belongs in this repository.
+
+Install and validate the versioned units only after the matching immutable release is
+live:
+
+```bash
+sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-health.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-health.timer /etc/systemd/system/
+sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-backup.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-maintenance.service /etc/systemd/system/
+sudo systemd-analyze verify /etc/systemd/system/php-guestbook-{health,backup,maintenance}.service
+sudo systemctl daemon-reload
+sudo systemctl start php-guestbook-health.service
+sudo systemctl enable --now php-guestbook-health.timer
+```
+
+The manual health run must report a single privacy-minimal `ok` line. Inspect its
+systemd sandbox score, timer schedule and journal. Test a synthetic alert and resolved
+notification without damaging the live database or making the release writable.
+Thresholds, payload constraints, CISO review and response steps are in
+[`docs/MONITORING.md`](../docs/MONITORING.md) and
+[`docs/INCIDENT_RESPONSE.md`](../docs/INCIDENT_RESPONSE.md).
