@@ -1,0 +1,31 @@
+[Unit]
+Description=Prune and optimize the PHP guestbook database
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=php-guestbook
+Group=php-guestbook
+UMask=0077
+WorkingDirectory=/srv/canary/php.micutu.com/current
+ExecStart=/usr/bin/php /srv/canary/php.micutu.com/current/scripts/maintenance.php
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/canary/php.micutu.com/php_micutu_app_storage /srv/canary/php.micutu.com/sessions
+ProtectClock=yes
+ProtectKernelLogs=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+RemoveIPC=yes

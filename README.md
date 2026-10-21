@@ -48,8 +48,11 @@ Run the dependency-free checks from the project root:
 ```bash
 php tests/run.php
 bash tests/http-smoke.sh
+bash tests/backup-smoke.sh
 shellcheck scripts/*.sh tests/*.sh
 ```
+
+Reviewed production templates and the isolation rollout are in [`ops/`](ops/README.md).
 
 ## Deployment
 Nginx + PHP-FPM (8.5), TLS via Certbot, proxied through Cloudflare.

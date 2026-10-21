@@ -1,0 +1,33 @@
+[Unit]
+Description=Consistent backup of the live PHP guestbook SQLite database
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=php-guestbook
+Group=php-guestbook
+UMask=0077
+Environment=GUESTBOOK_DB_PATH=/srv/canary/php.micutu.com/php_micutu_app_storage/database.sqlite
+Environment=GUESTBOOK_BACKUP_DIR=/srv/backups/php-guestbook
+Environment=GUESTBOOK_BACKUP_KEEP_DAYS=14
+ExecStart=/srv/canary/php.micutu.com/current/scripts/backup.sh
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/srv/canary/php.micutu.com/php_micutu_app_storage /srv/backups/php-guestbook
+ProtectClock=yes
+ProtectKernelLogs=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+AmbientCapabilities=
+RemoveIPC=yes

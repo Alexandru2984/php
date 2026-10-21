@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily PHP guestbook security-record maintenance
+
+[Timer]
+OnCalendar=*-*-* 03:45:00 UTC
+AccuracySec=5min
+Persistent=true
+Unit=php-guestbook-maintenance.service
+
+[Install]
+WantedBy=timers.target
