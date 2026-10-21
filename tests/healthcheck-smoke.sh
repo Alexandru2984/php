@@ -28,6 +28,7 @@ releases_dir="${site_root}/releases"
 release_dir="${releases_dir}/test-release"
 config_file="${site_root}/shared.env"
 restore_status_file="${backup_dir}/restore-drill.last-success"
+offsite_status_file="${tmp_dir}/offsite.last-success"
 
 mkdir -p "${storage_dir}" "${session_dir}" "${backup_dir}" "${release_dir}"
 chmod 0700 "${storage_dir}" "${session_dir}" "${backup_dir}"
@@ -57,6 +58,9 @@ backup_mtime="$(stat -c '%Y' "${backup_dir}/database-20260101T000000Z.sqlite.gz"
 printf 'success_epoch=%s backup_mtime=%s migrations=4\n' \
     "${now_epoch}" "${backup_mtime}" >"${restore_status_file}"
 chmod 0600 "${restore_status_file}"
+printf 'success_epoch=%s source_mtime=%s artifacts=1 destinations=2\n' \
+    "${now_epoch}" "${backup_mtime}" >"${offsite_status_file}"
+chmod 0600 "${offsite_status_file}"
 
 php -S "127.0.0.1:${port}" -t "${repo_dir}" "${repo_dir}/tests/router.php" \
     >"${tmp_dir}/server.log" 2>&1 &
@@ -81,12 +85,14 @@ health_env=(
     "GUESTBOOK_CONFIG_FILE=${config_file}"
     "GUESTBOOK_BACKUP_DIR=${backup_dir}"
     "GUESTBOOK_RESTORE_STATUS_FILE=${restore_status_file}"
+    "GUESTBOOK_OFFSITE_STATUS_FILE=${offsite_status_file}"
     "GUESTBOOK_RUNTIME_USER=${runtime_user}"
     "GUESTBOOK_RUNTIME_GROUP=${runtime_group}"
     "GUESTBOOK_CONFIG_OWNER=${runtime_user}"
     "GUESTBOOK_CONFIG_GROUP=${runtime_group}"
     'GUESTBOOK_MAX_BACKUP_AGE_SECONDS=108000'
     'GUESTBOOK_MAX_RESTORE_DRILL_AGE_SECONDS=691200'
+    'GUESTBOOK_MAX_OFFSITE_AGE_SECONDS=108000'
     'GUESTBOOK_MAX_DISK_USED_PERCENT=99'
     'GUESTBOOK_EXPECTED_MIGRATIONS=4'
     'GUESTBOOK_OPEN_REPORT_THRESHOLD=3'
@@ -144,6 +150,19 @@ now_epoch="$(date +%s)"
 backup_mtime="$(stat -c '%Y' "${backup_dir}/database-20260101T000000Z.sqlite.gz")"
 printf 'success_epoch=%s backup_mtime=%s migrations=4\n' \
     "${now_epoch}" "${backup_mtime}" >"${restore_status_file}"
+
+stale_offsite_epoch="$(( $(date +%s) - 259200 ))"
+printf 'success_epoch=%s source_mtime=%s artifacts=1 destinations=2\n' \
+    "${stale_offsite_epoch}" "${backup_mtime}" >"${offsite_status_file}"
+set +e
+offsite_output="$(env "${health_env[@]}" bash "${repo_dir}/scripts/healthcheck.sh" 2>&1)"
+offsite_exit=$?
+set -e
+[[ "${offsite_exit}" -ne 0 ]]
+[[ "${offsite_output}" == *'component=offsite reason=stale'* ]]
+now_epoch="$(date +%s)"
+printf 'success_epoch=%s source_mtime=%s artifacts=1 destinations=2\n' \
+    "${now_epoch}" "${backup_mtime}" >"${offsite_status_file}"
 
 chmod 0644 "${release_dir}/index.php"
 set +e

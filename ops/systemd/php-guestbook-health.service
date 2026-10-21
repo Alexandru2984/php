@@ -1,6 +1,6 @@
 [Unit]
 Description=PHP guestbook production health, security and recovery probe
-After=network-online.target nginx.service php8.5-fpm.service php-guestbook-backup.service
+After=network-online.target nginx.service php8.5-fpm.service php-guestbook-backup.service php-guestbook-offsite.service
 Wants=network-online.target
 ConditionFileIsExecutable=/srv/canary/php.micutu.com/current/scripts/healthcheck.sh
 OnFailure=swift-vapor-alert@%n.service

@@ -8,6 +8,7 @@ health_service='ops/systemd/php-guestbook-health.service'
 health_timer='ops/systemd/php-guestbook-health.timer'
 restore_service='ops/systemd/php-guestbook-restore-drill.service'
 restore_timer='ops/systemd/php-guestbook-restore-drill.timer'
+offsite_service='ops/systemd/php-guestbook-offsite.service'
 
 grep --quiet '^User=php-guestbook$' "${health_service}"
 grep --quiet '^NoNewPrivileges=yes$' "${health_service}"
@@ -26,6 +27,14 @@ grep --quiet '^InaccessiblePaths=/srv/canary/php.micutu.com/php_micutu_app_stora
 grep --quiet '^RestrictAddressFamilies=AF_UNIX$' "${restore_service}"
 grep --quiet '^OnFailure=swift-vapor-alert@%n.service$' "${restore_service}"
 grep --quiet '^Persistent=true$' "${restore_timer}"
+grep --quiet '^User=php-guestbook$' "${offsite_service}"
+grep --quiet '^ProtectSystem=strict$' "${offsite_service}"
+grep --quiet '^LoadCredentialEncrypted=rclone.conf:/etc/credstore.encrypted/php-guestbook-rclone-config$' \
+    "${offsite_service}"
+grep --quiet '^IPAddressDeny=169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.168.0.0/16$' \
+    "${offsite_service}"
+grep --quiet '^OnFailure=swift-vapor-alert@%n.service$' "${offsite_service}"
+grep --quiet '^OnSuccess=php-guestbook-offsite.service$' ops/systemd/php-guestbook-backup.service
 
 if rg --ignore-case --glob '!tests/ops-smoke.sh' \
     'BOT_TOKEN|CHAT_ID|api\.telegram\.org|[0-9]{8,12}:[A-Za-z0-9_-]{30,}' \

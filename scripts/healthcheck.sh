@@ -16,12 +16,14 @@ session_dir="${GUESTBOOK_SESSION_DIR:-${site_root}/sessions}"
 config_file="${GUESTBOOK_CONFIG_FILE:-${site_root}/shared/.env}"
 backup_dir="${GUESTBOOK_BACKUP_DIR:-/srv/backups/php-guestbook}"
 restore_status_file="${GUESTBOOK_RESTORE_STATUS_FILE:-${backup_dir}/restore-drill.last-success}"
+offsite_status_file="${GUESTBOOK_OFFSITE_STATUS_FILE:-/var/lib/php-guestbook-offsite/last-success}"
 runtime_user="${GUESTBOOK_RUNTIME_USER:-php-guestbook}"
 runtime_group="${GUESTBOOK_RUNTIME_GROUP:-php-guestbook}"
 config_owner="${GUESTBOOK_CONFIG_OWNER:-root}"
 config_group="${GUESTBOOK_CONFIG_GROUP:-php-guestbook}"
 max_backup_age="${GUESTBOOK_MAX_BACKUP_AGE_SECONDS:-108000}"
 max_restore_drill_age="${GUESTBOOK_MAX_RESTORE_DRILL_AGE_SECONDS:-691200}"
+max_offsite_age="${GUESTBOOK_MAX_OFFSITE_AGE_SECONDS:-108000}"
 max_disk_used="${GUESTBOOK_MAX_DISK_USED_PERCENT:-90}"
 expected_migrations="${GUESTBOOK_EXPECTED_MIGRATIONS:-4}"
 login_window="${GUESTBOOK_LOGIN_FAILURE_WINDOW_SECONDS:-900}"
@@ -54,6 +56,7 @@ expect_metadata() {
 
 require_uint max-backup-age "${max_backup_age}" 60 604800
 require_uint max-restore-drill-age "${max_restore_drill_age}" 3600 2678400
+require_uint max-offsite-age "${max_offsite_age}" 3600 604800
 require_uint max-disk-used "${max_disk_used}" 1 99
 require_uint expected-migrations "${expected_migrations}" 1 1000
 require_uint login-window "${login_window}" 60 86400
@@ -74,6 +77,7 @@ for path_spec in \
     require_absolute_path "${path_spec%%:*}" "${path_spec#*:}"
 done
 require_absolute_path restore-status-file "${restore_status_file}"
+require_absolute_path offsite-status-file "${offsite_status_file}"
 [[ "$(dirname -- "${restore_status_file}")" == "${backup_dir}" ]] \
     || fail configuration restore-status-outside-backup-directory
 
@@ -238,8 +242,27 @@ restore_migrations="${BASH_REMATCH[3]}"
 (( restore_migrations >= expected_migrations )) \
     || fail restore-drill migrations-missing
 
+[[ -f "${offsite_status_file}" && ! -L "${offsite_status_file}" ]] \
+    || fail offsite status-missing
+expect_metadata offsite-status "${offsite_status_file}" \
+    "${runtime_user}:${runtime_group}:600"
+offsite_status="$(<"${offsite_status_file}")" \
+    || fail offsite status-unreadable
+[[ "${offsite_status}" =~ ^success_epoch=([0-9]+)[[:space:]]source_mtime=([0-9]+)[[:space:]]artifacts=([0-9]+)[[:space:]]destinations=([0-9]+)$ ]] \
+    || fail offsite status-invalid
+offsite_success_epoch="${BASH_REMATCH[1]}"
+offsite_source_mtime="${BASH_REMATCH[2]}"
+offsite_artifacts="${BASH_REMATCH[3]}"
+offsite_destinations="${BASH_REMATCH[4]}"
+(( offsite_success_epoch <= now && now - offsite_success_epoch <= max_offsite_age )) \
+    || fail offsite stale
+(( offsite_source_mtime <= offsite_success_epoch )) \
+    || fail offsite source-time-invalid
+(( offsite_artifacts >= 1 )) || fail offsite artifacts-missing
+(( offsite_destinations >= 2 )) || fail offsite destination-redundancy-missing
+
 disk_used="$(df -P -- "${storage_dir}" | awk 'NR == 2 {gsub(/%/, "", $5); print $5}')"
 [[ "${disk_used}" =~ ^[0-9]+$ ]] || fail disk usage-invalid
 (( disk_used < max_disk_used )) || fail disk threshold-exceeded
 
-echo 'guestbook-health: ok web api rss analytics database security moderation backup restore-drill permissions disk'
+echo 'guestbook-health: ok web api rss analytics database security moderation backup restore-drill offsite permissions disk'

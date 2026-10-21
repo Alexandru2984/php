@@ -1,0 +1,73 @@
+[Unit]
+Description=Encrypt and verify PHP guestbook backups at two off-host providers
+After=network-online.target
+Wants=network-online.target
+ConditionFileIsExecutable=/srv/canary/php.micutu.com/current/scripts/offsite-backup.sh
+OnFailure=swift-vapor-alert@%n.service
+OnSuccess=swift-vapor-resolved@%n.service
+
+[Service]
+Type=oneshot
+User=php-guestbook
+Group=php-guestbook
+UMask=0077
+WorkingDirectory=/srv/canary/php.micutu.com/current
+EnvironmentFile=/etc/php-guestbook/offsite.env
+LoadCredentialEncrypted=rclone.conf:/etc/credstore.encrypted/php-guestbook-rclone-config
+RuntimeDirectory=php-guestbook-offsite
+RuntimeDirectoryMode=0700
+ExecStartPre=/usr/bin/install -m 0600 %d/rclone.conf %t/php-guestbook-offsite/rclone.conf
+Environment=HOME=%t/php-guestbook-offsite
+Environment=OFFSITE_RCLONE_CONFIG=%t/php-guestbook-offsite/rclone.conf
+Environment=OFFSITE_SOURCE_DIR=/srv/backups/php-guestbook
+Environment=OFFSITE_ARTIFACT_DIR=/srv/backups/php-guestbook/offsite
+Environment=OFFSITE_RECIPIENTS_FILE=/etc/php-guestbook/backup-recipients
+Environment=OFFSITE_STATUS_FILE=/var/lib/php-guestbook-offsite/last-success
+Environment=OFFSITE_MAX_SOURCE_AGE_SECONDS=108000
+Environment=OFFSITE_LOCAL_KEEP_DAYS=30
+StateDirectory=php-guestbook-offsite
+StateDirectoryMode=0700
+ExecStart=/srv/canary/php.micutu.com/current/scripts/offsite-backup.sh
+TimeoutStartSec=30min
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectHostname=yes
+ProtectControlGroups=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectClock=yes
+ProtectProc=invisible
+ProcSubset=pid
+InaccessiblePaths=-/run/docker.sock -/run/containerd/containerd.sock -/run/podman/podman.sock
+ReadWritePaths=/srv/backups/php-guestbook
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+IPAddressDeny=0.0.0.0/8 10.0.0.0/8 100.64.0.0/10
+IPAddressDeny=169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.168.0.0/16
+IPAddressDeny=192.0.2.0/24 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24
+IPAddressDeny=224.0.0.0/4 240.0.0.0/4
+IPAddressDeny=::/128 100::/64 2001:2::/48 2001:db8::/32
+IPAddressDeny=fc00::/7 fe80::/10 ff00::/8
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+MemoryDenyWriteExecute=yes
+KeyringMode=private
+RemoveIPC=yes
+LimitCORE=0
+LimitNOFILE=1024
+TasksMax=64
+MemoryHigh=256M
+MemoryMax=384M
+CPUQuota=200%
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=6

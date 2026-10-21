@@ -68,8 +68,35 @@ days by default. The weekly sandboxed restore drill independently decompresses t
 newest production snapshot, verifies SQLite integrity/foreign keys and compiles reads
 against the current schema. Its status becomes unhealthy after eight days. The
 engineering targets are a 24-hour RPO and two-hour RTO; production still needs an
-encrypted off-host copy and owner acceptance of those targets. Full recovery and key
-separation are documented in [`docs/RECOVERY_DRILL.md`](../docs/RECOVERY_DRILL.md).
+owner-approved recovery drill and acceptance of those targets. Every successful
+daily backup chains to public-key encryption and immutable copy/check operations at
+two off-host providers. Full recovery and key separation are documented in
+[`docs/RECOVERY_DRILL.md`](../docs/RECOVERY_DRILL.md).
+
+## Encrypted off-host copies
+
+Only `.age` ciphertext leaves the VPS. The encryption recipients file contains
+public keys only and is pinned by SHA-256 in `/etc/php-guestbook/offsite.env`. The age
+private recovery key must remain off this server. Provision a second offline recovery
+recipient before treating key-loss resilience as complete.
+
+The rclone configuration is a systemd encrypted credential, copied into a private
+runtime directory only while the unit runs. Create a provider credential restricted
+to the two guestbook namespaces; do not reuse an operator's full rclone config. Install
+the non-secret routing template only after replacing the recipient digest:
+
+```bash
+sudo install -d -o root -g root -m 0755 /etc/php-guestbook
+sudo install -o root -g root -m 0644 backup-recipients /etc/php-guestbook/backup-recipients
+sha256sum /etc/php-guestbook/backup-recipients
+sudo install -o root -g root -m 0644 offsite.env /etc/php-guestbook/offsite.env
+sudo install -o root -g root -m 0600 php-guestbook-rclone-config /etc/credstore.encrypted/php-guestbook-rclone-config
+```
+
+The service never sends plaintext, overwrites a different remote object or deletes
+remote history. Configure and audit provider-side retention separately; a copy job
+must not gain deletion authority merely for convenience. A healthy status requires a
+post-upload check at both Google Drive and Cloudflare R2.
 
 ## Monitoring and Telegram pager
 
@@ -86,11 +113,13 @@ live:
 sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-health.service /etc/systemd/system/
 sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-health.timer /etc/systemd/system/
 sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-backup.service /etc/systemd/system/
+sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-offsite.service /etc/systemd/system/
 sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-restore-drill.service /etc/systemd/system/
 sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-restore-drill.timer /etc/systemd/system/
 sudo install -o root -g root -m 0644 ops/systemd/php-guestbook-maintenance.service /etc/systemd/system/
-sudo systemd-analyze verify /etc/systemd/system/php-guestbook-{health,backup,restore-drill,maintenance}.service
+sudo systemd-analyze verify /etc/systemd/system/php-guestbook-{health,backup,offsite,restore-drill,maintenance}.service
 sudo systemctl daemon-reload
+sudo systemctl start php-guestbook-offsite.service
 sudo systemctl start php-guestbook-restore-drill.service
 sudo systemctl start php-guestbook-health.service
 sudo systemctl enable --now php-guestbook-health.timer php-guestbook-restore-drill.timer

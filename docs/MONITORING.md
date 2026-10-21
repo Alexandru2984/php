@@ -8,10 +8,9 @@ browser ──page/performance──> self-hosted Umami
    └──HTTP──> Cloudflare ──5-minute anomaly check──> existing Telegram bot
 
 systemd timer ──5 minutes──> guestbook health probe
-backup timer ───────────────> backup service          ┐
-restore timer ──────────────> isolated restore drill  │
-maintenance timer ─────────> retention service       ├─failure/recovery─> host pager ─> Telegram
-                                                     ┘
+backup timer ──> backup ──> age encrypt ──> check Google Drive + R2 ┐
+restore timer ──────────────> isolated restore drill                ├─failure/recovery─> host pager ─> Telegram
+maintenance timer ─────────> retention service                     ┘
 ```
 
 The application never calls Telegram. The host pager owns delivery, encrypted
@@ -28,6 +27,7 @@ The guestbook probe checks:
 - SQLite `quick_check`, the minimum migration count, recent admin-login failures and
   the privacy-minimal count of open abuse reports;
 - compressed backup integrity and maximum backup age of 30 hours;
+- a two-provider off-host verification marker no older than 30 hours;
 - a validated restore marker no older than eight days, produced only after an
   isolated SQLite integrity, foreign-key, migration and schema-contract drill;
 - exact owner/group/mode for configuration, storage, database, sessions and backups;
@@ -44,11 +44,12 @@ The guestbook probe checks:
 | Admin authentication abuse | 5 failed/blocked attempts in 15 minutes | Next five-minute probe |
 | Unreviewed abuse-report backlog | 10 open reports | Next five-minute probe |
 | Backup missing, invalid or old | Older than 30 hours | Next five-minute probe |
+| Off-host copies failed or stopped | Either provider fails, or marker older than 30 hours | Immediate dispatch or next five-minute probe |
 | Restore drill failed or stopped | Failed job or marker older than 8 days | Immediate dispatch or next five-minute probe |
 | Permission or immutable-release drift | Any mismatch | Next five-minute probe |
 | Disk pressure | 90% used | Next five-minute probe |
 | Edge 5xx or traffic spike | Existing Cloudflare bot policy | About 5 minutes |
-| Backup/restore/maintenance process failure | Non-zero systemd result | Immediate systemd dispatch |
+| Backup/off-host/restore/maintenance process failure | Non-zero systemd result | Immediate systemd dispatch |
 
 The same incident fingerprint is throttled by the host pager. A different failure is
 sent immediately. Recovery generates one resolved notification only when a matching
@@ -67,7 +68,7 @@ not receive a guestbook user identifier from this application.
 
 ## CISO review
 
-**Date:** 2026-10-21  
+**Date:** 2026-10-22
 **Verdict:** 🟡 MITIGATE THEN SHIP — technical mitigations and a runbook are present;
 an operator tabletop and Telegram credential-rotation drill remain follow-up work.
 
@@ -108,16 +109,19 @@ after the first exercise.
 
 GDPR is plausibly in scope. If an incident is a qualifying personal-data breach, the
 controller assesses supervisory-authority notification within 72 hours of awareness.
-Telegram receives only operational metadata, Cloudflare processes edge traffic, and
-Umami remains self-hosted on the VPS. No new package or SaaS vendor was added. Confirm
-the existing Telegram/Cloudflare processor records and transfer basis outside this
-repository.
+Telegram receives only operational metadata, Cloudflare processes edge traffic and
+R2 ciphertext, Google Drive stores a second ciphertext copy, and Umami remains
+self-hosted on the VPS. Confirm all processor records, regions/transfer bases and
+retention outside this repository. The current provider credential scope and single
+recovery recipient remain explicit follow-up risks.
 
 ## CI controls
 
 CI runs the health probe against a disposable HTTP server, migrated SQLite database
-and real compressed backup. It proves healthy behaviour plus login-abuse, stale-backup
-stale-restore and writable-release failures. A separate restore suite proves a valid
-recovery plus corrupt and stale snapshot rejection. The operations smoke test verifies
-critical systemd hardening/alert directives and rejects Telegram credentials or
-direct Bot API integration anywhere in tracked operational/application sources.
+and real compressed backup. It proves healthy behaviour plus login-abuse,
+stale-backup, stale-offsite, stale-restore and writable-release failures. A separate
+restore suite proves a valid recovery plus corrupt and stale snapshot rejection. The
+off-host suite proves age recoverability, recipient-digest pinning and destination
+validation. The operations smoke test verifies critical systemd hardening/alert
+directives and rejects Telegram credentials or direct Bot API integration anywhere in
+tracked operational/application sources.

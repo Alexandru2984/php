@@ -59,15 +59,20 @@ print the restored database, message counts or message bodies to prove success.
 If any integrity, schema or compatibility check fails, stop. A partial or manually
 edited restore is not an acceptable fallback.
 
-## Off-host gap and key recovery
+## Off-host encryption and key recovery
 
-Local snapshots and the live database remain on one VPS failure boundary. The next
-control must upload ciphertext only to two already approved destinations, verify it
-after transfer, never mirror local deletion and use a recovery key that survives loss
-of this host. A key available only through a host-bound systemd credential cannot be
-the sole recovery key. Provisioning the remote credentials, recovery recipients and
-retention policy is a separate operator-approved step; no application secret should
-be reused for backup encryption.
+Every successful local backup now chains to age encryption for an operator-held SSH
+recovery key, then immutable copy and checksum verification at Google Drive and
+Cloudflare R2. Neither destination receives plaintext. The script never mirrors local
+deletion, overwrites different remote content or deletes remote history. The rclone
+config is exposed only as a systemd credential during the sandboxed job.
+
+The deployed recipient is pinned by file digest and its private key is not on the
+VPS, so host loss does not remove the decryption key. Key loss is still a single point
+of failure: add a second separately stored age recipient, revalidate its fingerprint
+and update the pinned digest. A host-bound systemd credential must never become the
+sole recovery key. Provider credentials should be narrowed to guestbook namespaces,
+and provider-side retention must be documented and audited independently.
 
 Once off-host copying is enabled, run a quarterly human drill from a downloaded
 artifact using the escrowed recovery key on an isolated recovery system. Record only
@@ -77,20 +82,21 @@ key onto the production VPS merely to automate that exercise.
 ## CISO review
 
 **Date:** 2026-10-22  
-**Verdict:** 🟡 MITIGATE THEN SHIP for the complete resilience program; the isolated
-local restore control itself is safe to ship, while host-loss recovery remains open.
+**Verdict:** 🟡 MITIGATE THEN SHIP for the complete resilience program. Automated
+local restore and dual-provider encrypted copying are safe to ship; a second recovery
+recipient and a human off-host restore remain open.
 
 ### STRIDE and blast radius
 
-- **Tampering/denial of service:** a compromised `php-guestbook` identity can still
-  delete the local database and local snapshots. The drill catches accidental
-  corruption and incompatibility but does not create an independent trust boundary.
+- **Tampering/denial of service:** a compromised `php-guestbook` identity can delete
+  local data, but it cannot access the transient rclone credential or propagate that
+  deletion remotely. A root/release compromise can still disrupt future copies.
 - **Information disclosure:** local snapshots contain all database fields. Mode
-  `0600`, a private backup directory and sandboxed jobs reduce exposure; encrypted
-  off-host copies remain required before data leaves the VPS.
+  `0600`, a private backup directory and sandboxed jobs reduce exposure; only
+  public-key ciphertext leaves the VPS.
 - **Repudiation:** the success marker proves that the scheduled command completed,
-  but a host-level or runtime-identity compromise can forge local evidence. Remote
-  immutable storage and provider audit logs are required for stronger evidence.
+  but a host-level compromise can forge local evidence. Immutable copy semantics,
+  post-upload checks and provider logs supply an independent evidence source.
 - **Spoofing/elevation:** the drill accepts only fixed absolute paths, regular files,
   bounded integers and a narrow filename pattern; it has no network, capabilities or
   access to live storage.
@@ -102,7 +108,7 @@ and event frequency; repository evidence cannot supply those figures responsibly
 
 ### Detection and response
 
-Backup creation failures page immediately and stale/corrupt artifacts are detected
+Backup or off-host failures page immediately and stale/corrupt artifacts are detected
 within five minutes after the 30-hour limit. Restore incompatibility is detected by
 the weekly job or within eight days if the timer itself stops. The recovery procedure
 above is executable, but a human data-loss tabletop and measured two-hour RTO are not
@@ -114,7 +120,6 @@ by the incident-response runbook.
 Guestbook backups can contain personal data, so GDPR purpose limitation, retention,
 access control and breach assessment apply. A qualifying personal-data breach may
 require supervisory-authority notification within 72 hours of awareness; the
-controller makes that legal determination. This local drill adds no vendor. The
-planned off-host stage will use existing Google Drive and Cloudflare R2 infrastructure
-and therefore must confirm processor records, region/transfer basis, retention,
-credential scope, immutability and deletion handling before activation.
+controller makes that legal determination. Google Drive and Cloudflare R2 are now
+off-host ciphertext processors/storage vendors. Confirm their processor records,
+region/transfer basis, retention, credential scope, immutability and deletion handling.
