@@ -23,7 +23,8 @@ The guestbook probe checks:
 
 - HTML marker, JSON schema and RSS shape through the public Cloudflare route;
 - the self-hosted analytics script and all privacy attributes in rendered HTML;
-- SQLite `quick_check`, the minimum migration count and recent admin-login failures;
+- SQLite `quick_check`, the minimum migration count, recent admin-login failures and
+  the privacy-minimal count of open abuse reports;
 - compressed backup integrity and maximum backup age of 30 hours;
 - exact owner/group/mode for configuration, storage, database, sessions and backups;
 - an atomic `current` symlink whose target is inside `releases` and not writable by
@@ -37,6 +38,7 @@ The guestbook probe checks:
 | Public HTML/API/RSS or analytics unavailable | One failed probe | 5 minutes + timer jitter |
 | SQLite integrity/schema failure | One failed probe | 5 minutes + timer jitter |
 | Admin authentication abuse | 5 failed/blocked attempts in 15 minutes | Next five-minute probe |
+| Unreviewed abuse-report backlog | 10 open reports | Next five-minute probe |
 | Backup missing, invalid or old | Older than 30 hours | Next five-minute probe |
 | Permission or immutable-release drift | Any mismatch | Next five-minute probe |
 | Disk pressure | 90% used | Next five-minute probe |

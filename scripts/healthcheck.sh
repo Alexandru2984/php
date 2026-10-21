@@ -21,9 +21,10 @@ config_owner="${GUESTBOOK_CONFIG_OWNER:-root}"
 config_group="${GUESTBOOK_CONFIG_GROUP:-php-guestbook}"
 max_backup_age="${GUESTBOOK_MAX_BACKUP_AGE_SECONDS:-108000}"
 max_disk_used="${GUESTBOOK_MAX_DISK_USED_PERCENT:-90}"
-expected_migrations="${GUESTBOOK_EXPECTED_MIGRATIONS:-3}"
+expected_migrations="${GUESTBOOK_EXPECTED_MIGRATIONS:-4}"
 login_window="${GUESTBOOK_LOGIN_FAILURE_WINDOW_SECONDS:-900}"
 login_threshold="${GUESTBOOK_LOGIN_FAILURE_THRESHOLD:-5}"
+open_report_threshold="${GUESTBOOK_OPEN_REPORT_THRESHOLD:-10}"
 allow_http="${GUESTBOOK_HEALTH_ALLOW_HTTP:-0}"
 
 fail() {
@@ -54,6 +55,7 @@ require_uint max-disk-used "${max_disk_used}" 1 99
 require_uint expected-migrations "${expected_migrations}" 1 1000
 require_uint login-window "${login_window}" 60 86400
 require_uint login-threshold "${login_threshold}" 1 1000
+require_uint open-report-threshold "${open_report_threshold}" 1 100000
 [[ "${allow_http}" == 0 || "${allow_http}" == 1 ]] \
     || fail configuration allow-http-invalid
 
@@ -173,6 +175,12 @@ login_failures="$(sqlite3 -batch "${db_path}" \
 [[ "${login_failures}" =~ ^[0-9]+$ ]] || fail security login-count-invalid
 (( login_failures < login_threshold )) || fail security admin-login-threshold
 
+open_reports="$(sqlite3 -batch "${db_path}" \
+    "SELECT COUNT(*) FROM abuse_reports WHERE status = 'open';")" \
+    || fail moderation report-query-failed
+[[ "${open_reports}" =~ ^[0-9]+$ ]] || fail moderation report-count-invalid
+(( open_reports < open_report_threshold )) || fail moderation open-report-threshold
+
 latest_backup=''
 latest_mtime=0
 while IFS= read -r -d '' candidate; do
@@ -194,4 +202,4 @@ disk_used="$(df -P -- "${storage_dir}" | awk 'NR == 2 {gsub(/%/, "", $5); print 
 [[ "${disk_used}" =~ ^[0-9]+$ ]] || fail disk usage-invalid
 (( disk_used < max_disk_used )) || fail disk threshold-exceeded
 
-echo 'guestbook-health: ok web api rss analytics database security backup permissions disk'
+echo 'guestbook-health: ok web api rss analytics database security moderation backup permissions disk'

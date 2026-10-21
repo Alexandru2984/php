@@ -79,7 +79,8 @@ health_env=(
     "GUESTBOOK_CONFIG_GROUP=${runtime_group}"
     'GUESTBOOK_MAX_BACKUP_AGE_SECONDS=108000'
     'GUESTBOOK_MAX_DISK_USED_PERCENT=99'
-    'GUESTBOOK_EXPECTED_MIGRATIONS=3'
+    'GUESTBOOK_EXPECTED_MIGRATIONS=4'
+    'GUESTBOOK_OPEN_REPORT_THRESHOLD=3'
     'GUESTBOOK_HEALTH_ALLOW_HTTP=1'
 )
 
@@ -97,6 +98,19 @@ set -e
 [[ "${security_exit}" -ne 0 ]]
 [[ "${security_output}" == *'component=security reason=admin-login-threshold'* ]]
 sqlite3 "${storage_dir}/database.sqlite" "DELETE FROM security_events;"
+
+sqlite3 "${storage_dir}/database.sqlite" \
+    "INSERT INTO messages (author, content) VALUES ('Fixture', 'Moderation fixture');
+     INSERT INTO abuse_reports (message_id, category, created_at)
+     WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM n WHERE x < 3)
+     SELECT 1, 'spam', CAST(strftime('%s', 'now') AS INTEGER) FROM n;"
+set +e
+moderation_output="$(env "${health_env[@]}" bash "${repo_dir}/scripts/healthcheck.sh" 2>&1)"
+moderation_exit=$?
+set -e
+[[ "${moderation_exit}" -ne 0 ]]
+[[ "${moderation_output}" == *'component=moderation reason=open-report-threshold'* ]]
+sqlite3 "${storage_dir}/database.sqlite" "DELETE FROM abuse_reports; DELETE FROM messages;"
 
 touch -d '3 days ago' "${backup_dir}/database-20260101T000000Z.sqlite.gz"
 set +e
