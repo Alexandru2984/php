@@ -21,9 +21,16 @@ function e(?string $s): string
 /** Return the current CSRF token, creating one for the session if needed. */
 function csrf_token(): string
 {
-    if (empty($_SESSION['csrf'])) {
+    if (!isset($_SESSION['csrf']) || !is_string($_SESSION['csrf']) || strlen($_SESSION['csrf']) !== 64) {
         $_SESSION['csrf'] = bin2hex(random_bytes(32));
     }
+    return $_SESSION['csrf'];
+}
+
+/** Rotate the CSRF secret after a privilege or session transition. */
+function csrf_rotate(): string
+{
+    $_SESSION['csrf'] = bin2hex(random_bytes(32));
     return $_SESSION['csrf'];
 }
 
@@ -38,6 +45,7 @@ function csrf_valid(): bool
 {
     return isset($_POST['csrf'], $_SESSION['csrf'])
         && is_string($_POST['csrf'])
+        && is_string($_SESSION['csrf'])
         && hash_equals($_SESSION['csrf'], $_POST['csrf']);
 }
 
@@ -61,8 +69,68 @@ function flash_get(): ?array
 /** Redirect (Post/Redirect/Get) and stop. */
 function redirect(string $to): never
 {
-    header('Location: ' . $to);
+    header('Location: ' . $to, true, 303);
     exit;
+}
+
+/** Send a minimal error without reflecting request data or leaking internals. */
+function abort_response(int $status, string $message): never
+{
+    http_response_code($status);
+    header('Content-Type: text/plain; charset=utf-8');
+    header('Cache-Control: no-store');
+    echo $message;
+    exit;
+}
+
+/** Return a string input or null when missing/wrongly typed. */
+function string_input(array $source, string $key): ?string
+{
+    return array_key_exists($key, $source) && is_string($source[$key])
+        ? $source[$key]
+        : null;
+}
+
+/** Parse a positive decimal integer without PHP array/string coercion. */
+function positive_int_input(array $source, string $key, int $default = 1): int
+{
+    $value = string_input($source, $key);
+    if ($value === null || preg_match('/\A[1-9][0-9]{0,8}\z/D', $value) !== 1) {
+        return $default;
+    }
+    return (int) $value;
+}
+
+/** Additional same-origin defence for state-changing browser requests. */
+function same_origin_request(): bool
+{
+    $fetchSite = strtolower((string) ($_SERVER['HTTP_SEC_FETCH_SITE'] ?? ''));
+    if ($fetchSite === 'cross-site') {
+        return false;
+    }
+
+    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+    if ($origin === '') {
+        // Some older clients omit Origin. The per-session CSRF token remains required.
+        return true;
+    }
+    if (!is_string($origin) || $origin === 'null') {
+        return false;
+    }
+
+    $parts = parse_url($origin);
+    if (!is_array($parts) || empty($parts['scheme']) || empty($parts['host'])) {
+        return false;
+    }
+    if (($parts['path'] ?? '') !== '' || isset($parts['query']) || isset($parts['fragment'])) {
+        return false;
+    }
+
+    $normalized = strtolower($parts['scheme']) . '://' . strtolower($parts['host']);
+    if (isset($parts['port'])) {
+        $normalized .= ':' . $parts['port'];
+    }
+    return hash_equals(strtolower(APP_ORIGIN), $normalized);
 }
 
 /**
@@ -71,13 +139,16 @@ function redirect(string $to): never
  */
 function client_ip(): string
 {
-    return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
+    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    return is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP) !== false
+        ? $ip
+        : '0.0.0.0';
 }
 
-/** Privacy-preserving, salted hash of the client IP for rate limiting. */
-function client_ip_hash(): string
+/** Purpose-separated, keyed client identifier for abuse prevention. */
+function client_ip_hash(string $purpose = 'posting'): string
 {
-    return hash('sha256', client_ip() . '|' . (env('APP_SECRET') ?? 'insecure-default'));
+    return hash_hmac('sha256', $purpose . "\0" . client_ip(), APP_SECRET);
 }
 
 /**
@@ -110,8 +181,14 @@ function rate_limit_check(PDO $pdo): ?string
  */
 function validate_submission(array $post): array
 {
-    $author  = trim((string) ($post['author'] ?? ''));
-    $content = trim((string) ($post['message'] ?? ''));
+    $rawAuthor = string_input($post, 'author');
+    $rawContent = string_input($post, 'message');
+    if ($rawContent === null || ($rawAuthor === null && array_key_exists('author', $post))) {
+        return ['', '', 'Invalid form data. Please try again.'];
+    }
+
+    $author  = trim($rawAuthor ?? '');
+    $content = trim($rawContent);
 
     // Collapse Windows newlines and strip other control characters.
     $content = str_replace("\r\n", "\n", $content);

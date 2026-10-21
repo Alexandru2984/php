@@ -6,27 +6,47 @@ define('GUESTBOOK_APP', true);
 require __DIR__ . '/config.php';
 require __DIR__ . '/lib.php';
 
+$method = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+if (!in_array($method, ['GET', 'HEAD', 'POST'], true)) {
+    header('Allow: GET, HEAD, POST');
+    abort_response(405, 'Method not allowed.');
+}
+if (!empty($_SERVER['PATH_INFO'])) {
+    abort_response(404, 'Not found.');
+}
+
 // ---------------------------------------------------------------------------
 // Controller (all mutations are POST, CSRF-protected, and end in a redirect).
 // ---------------------------------------------------------------------------
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (!csrf_valid()) {
+if ($method === 'POST') {
+    if (!same_origin_request() || !csrf_valid()) {
         flash_set('error', 'Your session expired. Please try again.');
         redirect('/');
     }
 
-    $action = $_POST['action'] ?? '';
+    $action = string_input($_POST, 'action');
+    if ($action === null) {
+        abort_response(400, 'Invalid form data.');
+    }
 
     if ($action === 'login') {
         if (time() < ($_SESSION['login_lock_until'] ?? 0)) {
             flash_set('error', 'Too many attempts. Please wait a minute.');
             redirect('/');
         }
+        $password = string_input($_POST, 'password');
         $hash = env('ADMIN_PASSWORD_HASH') ?? '';
-        $ok   = $hash !== '' && password_verify((string) ($_POST['password'] ?? ''), $hash);
+        $ok = $password !== null
+            && strlen($password) <= 1024
+            && $hash !== ''
+            && password_verify($password, $hash);
         if ($ok) {
             session_regenerate_id(true);
             $_SESSION['is_admin'] = true;
+            $_SESSION['admin_authenticated_at'] = time();
+            $_SESSION['admin_last_seen_at'] = time();
+            $_SESSION['admin_session_rotated_at'] = time();
+            csrf_rotate();
             unset($_SESSION['login_fails'], $_SESSION['login_lock_until']);
             flash_set('success', 'Signed in as admin.');
         } else {
@@ -41,8 +61,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     if ($action === 'logout') {
-        $_SESSION['is_admin'] = false;
+        $_SESSION = [];
         session_regenerate_id(true);
+        csrf_rotate();
         flash_set('success', 'Signed out.');
         redirect('/');
     }
@@ -52,7 +73,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             flash_set('error', 'Not authorised.');
             redirect('/');
         }
-        $id   = filter_var($_POST['id'] ?? null, FILTER_VALIDATE_INT);
+        $rawId = string_input($_POST, 'id');
+        $id = $rawId !== null && preg_match('/\A[1-9][0-9]{0,18}\z/D', $rawId) === 1
+            ? filter_var($rawId, FILTER_VALIDATE_INT)
+            : false;
         if ($id !== false && $id !== null) {
             $stmt = $pdo->prepare('DELETE FROM messages WHERE id = :id');
             $stmt->bindValue(':id', $id, PDO::PARAM_INT);
@@ -66,7 +90,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'post') {
         // Honeypot: bots fill hidden fields humans never see.
-        if (!empty($_POST['website'])) {
+        $website = string_input($_POST, 'website');
+        if ($website === null && array_key_exists('website', $_POST)) {
+            abort_response(400, 'Invalid form data.');
+        }
+        if ($website !== null && $website !== '') {
             flash_set('success', 'Thanks for your message!'); // silently drop
             redirect('/');
         }
@@ -103,7 +131,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ---------------------------------------------------------------------------
 $isAdmin = !empty($_SESSION['is_admin']);
 
-$q      = mb_substr(trim((string) ($_GET['q'] ?? '')), 0, 100);
+$rawQuery = string_input($_GET, 'q');
+if ($rawQuery === null && array_key_exists('q', $_GET)) {
+    abort_response(400, 'Invalid query.');
+}
+$q      = mb_substr(trim($rawQuery ?? ''), 0, 100);
 $where  = '';
 $params = [];
 if ($q !== '') {
@@ -117,7 +149,10 @@ $total = (int) $countStmt->fetchColumn();
 
 $perPage = PER_PAGE;
 $pages   = max(1, (int) ceil($total / $perPage));
-$page    = max(1, min($pages, (int) ($_GET['page'] ?? 1)));
+if (array_key_exists('page', $_GET) && !is_string($_GET['page'])) {
+    abort_response(400, 'Invalid page.');
+}
+$page    = max(1, min($pages, positive_int_input($_GET, 'page')));
 $offset  = ($page - 1) * $perPage;
 
 $stmt = $pdo->prepare(
@@ -134,9 +169,13 @@ $messages = $stmt->fetchAll();
 // ---------------------------------------------------------------------------
 // Read-only JSON API: /?format=json[&q=...&page=N]
 // ---------------------------------------------------------------------------
-if (($_GET['format'] ?? '') === 'json') {
+$format = string_input($_GET, 'format');
+if ($format === null && array_key_exists('format', $_GET)) {
+    abort_response(400, 'Invalid format.');
+}
+if ($format === 'json') {
     header('Content-Type: application/json; charset=utf-8');
-    header('Cache-Control: public, max-age=30');
+    header('Cache-Control: private, no-store');
     echo json_encode([
         'total'    => $total,
         'page'     => $page,
@@ -309,7 +348,8 @@ $flash = flash_get();
             <form method="POST" class="admin-form">
                 <?php echo csrf_field(); ?>
                 <input type="hidden" name="action" value="login">
-                <input class="input" type="password" name="password" placeholder="Admin password" autocomplete="current-password">
+                <input class="input" type="password" name="password" placeholder="Admin password"
+                       autocomplete="current-password" maxlength="1024" required aria-label="Admin password">
                 <button class="btn secondary" type="submit">Sign in</button>
             </form>
         </details>

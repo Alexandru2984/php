@@ -33,8 +33,21 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 1. Copy `.env.example` to `.env` and fill in:
    - `ADMIN_PASSWORD_HASH` — `php -r 'echo password_hash("pw", PASSWORD_DEFAULT), "\n";'`
    - `APP_SECRET` — `php -r 'echo bin2hex(random_bytes(32)), "\n";'`
+   - `APP_ORIGIN` — the canonical HTTPS origin, without a trailing path.
 2. Ensure `../php_micutu_app_storage/` exists and is writable by the PHP-FPM
    user (`www-data`): `chown micu:www-data` + `chmod 2770` on the directory.
+3. Apply database migrations before switching a release live:
+   `php scripts/migrate.php`.
+
+## Verification
+
+Run the dependency-free checks from the project root:
+
+```bash
+php tests/run.php
+bash tests/http-smoke.sh
+shellcheck scripts/*.sh tests/*.sh
+```
 
 ## Deployment
 Nginx + PHP-FPM (8.5), TLS via Certbot, proxied through Cloudflare.
