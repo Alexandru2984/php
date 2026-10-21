@@ -10,6 +10,7 @@ health_timer='ops/systemd/php-guestbook-health.timer'
 grep --quiet '^User=php-guestbook$' "${health_service}"
 grep --quiet '^NoNewPrivileges=yes$' "${health_service}"
 grep --quiet '^ProtectSystem=strict$' "${health_service}"
+grep --quiet '^ReadWritePaths=/srv/canary/php.micutu.com/php_micutu_app_storage$' "${health_service}"
 grep --quiet '^MemoryDenyWriteExecute=yes$' "${health_service}"
 grep --quiet '^OnFailure=swift-vapor-alert@%n.service$' "${health_service}"
 grep --quiet '^OnSuccess=swift-vapor-resolved@%n.service$' "${health_service}"

@@ -23,6 +23,8 @@ ProtectProc=invisible
 ProcSubset=pid
 ProtectSystem=strict
 ProtectHome=yes
+# SQLite WAL readers may need to open/create WAL and SHM sidecars.
+ReadWritePaths=/srv/canary/php.micutu.com/php_micutu_app_storage
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
