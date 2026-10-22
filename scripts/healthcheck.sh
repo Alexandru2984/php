@@ -248,18 +248,24 @@ expect_metadata offsite-status "${offsite_status_file}" \
     "${runtime_user}:${runtime_group}:600"
 offsite_status="$(<"${offsite_status_file}")" \
     || fail offsite status-unreadable
-[[ "${offsite_status}" =~ ^success_epoch=([0-9]+)[[:space:]]source_mtime=([0-9]+)[[:space:]]artifacts=([0-9]+)[[:space:]]destinations=([0-9]+)$ ]] \
+[[ "${offsite_status}" =~ ^success_epoch=([0-9]+)[[:space:]]source_mtime=([0-9]+)[[:space:]]artifacts=([0-9]+)[[:space:]]verified=([0-9]+)[[:space:]]configured=([0-9]+)[[:space:]]failed=([0-9]+)$ ]] \
     || fail offsite status-invalid
 offsite_success_epoch="${BASH_REMATCH[1]}"
 offsite_source_mtime="${BASH_REMATCH[2]}"
 offsite_artifacts="${BASH_REMATCH[3]}"
-offsite_destinations="${BASH_REMATCH[4]}"
+offsite_verified="${BASH_REMATCH[4]}"
+offsite_configured="${BASH_REMATCH[5]}"
+offsite_failed="${BASH_REMATCH[6]}"
 (( offsite_success_epoch <= now && now - offsite_success_epoch <= max_offsite_age )) \
     || fail offsite stale
 (( offsite_source_mtime <= offsite_success_epoch )) \
     || fail offsite source-time-invalid
 (( offsite_artifacts >= 1 )) || fail offsite artifacts-missing
-(( offsite_destinations >= 2 )) || fail offsite destination-redundancy-missing
+(( offsite_configured >= 2 )) || fail offsite destination-redundancy-missing
+(( offsite_verified + offsite_failed == offsite_configured )) \
+    || fail offsite destination-count-invalid
+(( offsite_verified >= 1 )) || fail offsite no-destination-verified
+(( offsite_failed == 0 )) || fail offsite redundancy-degraded
 
 disk_used="$(df -P -- "${storage_dir}" | awk 'NR == 2 {gsub(/%/, "", $5); print $5}')"
 [[ "${disk_used}" =~ ^[0-9]+$ ]] || fail disk usage-invalid

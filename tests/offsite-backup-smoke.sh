@@ -51,7 +51,7 @@ artifact="${artifact_dir}/database-20261022T000000Z.sqlite.gz.age"
 age -d -i "${identity_file}" -o "${tmp_dir}/restored.sqlite.gz" "${artifact}"
 gzip -t "${tmp_dir}/restored.sqlite.gz"
 [[ "$(gzip -dc "${tmp_dir}/restored.sqlite.gz")" == 'recoverable guestbook fixture' ]]
-grep --quiet '^success_epoch=[0-9]\+ source_mtime=[0-9]\+ artifacts=1 destinations=2$' \
+grep --quiet '^success_epoch=[0-9]\+ source_mtime=[0-9]\+ artifacts=1 verified=2 configured=2 failed=0$' \
     "${status_file}"
 [[ "$(stat -c '%a' "${status_file}")" == 600 ]]
 
@@ -72,5 +72,16 @@ bad_digest_exit=$?
 set -e
 [[ "${bad_digest_exit}" -ne 0 ]]
 [[ "${bad_digest_output}" == *'component=encryption reason=recipients-drift'* ]]
+
+partial_env=("${offsite_env[@]}")
+partial_env[5]="OFFSITE_RCLONE=${repo_dir}/tests/fixtures/rclone-partial.sh"
+set +e
+partial_output="$(env "${partial_env[@]}" bash "${repo_dir}/scripts/offsite-backup.sh" 2>&1)"
+partial_exit=$?
+set -e
+[[ "${partial_exit}" -ne 0 ]]
+[[ "${partial_output}" == *'component=transport reason=redundancy-degraded verified=1 failed=1'* ]]
+grep --quiet '^success_epoch=[0-9]\+ source_mtime=[0-9]\+ artifacts=1 verified=1 configured=2 failed=1$' \
+    "${status_file}"
 
 echo 'Encrypted off-host backup smoke tests passed.'

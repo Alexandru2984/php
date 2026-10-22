@@ -165,19 +165,28 @@ rclone_args=(
     --log-level NOTICE
 )
 
+verified_destinations=0
+failed_destinations=0
 for remote in "${remotes[@]}"; do
-    "${rclone_bin}" copy "${artifact_dir}" "${remote}" \
-        "${rclone_args[@]}" --immutable --checksum \
-        || fail transport upload-failed
-    "${rclone_bin}" check "${artifact_dir}" "${remote}" \
-        "${rclone_args[@]}" --one-way --checksum \
-        || fail transport verification-failed
+    if ! "${rclone_bin}" copy "${artifact_dir}" "${remote}" \
+        "${rclone_args[@]}" --immutable --checksum; then
+        failed_destinations=$(( failed_destinations + 1 ))
+        continue
+    fi
+    if ! "${rclone_bin}" check "${artifact_dir}" "${remote}" \
+        "${rclone_args[@]}" --one-way --checksum; then
+        failed_destinations=$(( failed_destinations + 1 ))
+        continue
+    fi
+    verified_destinations=$(( verified_destinations + 1 ))
 done
+(( verified_destinations > 0 )) || fail transport no-destination-verified
 
 status_tmp="$(mktemp "${status_dir}/.last-success.partial.XXXXXX")" \
     || fail status create-failed
-printf 'success_epoch=%s source_mtime=%s artifacts=%s destinations=%s\n' \
-    "${now}" "${latest_source_mtime}" "${#artifacts[@]}" "${#remotes[@]}" \
+printf 'success_epoch=%s source_mtime=%s artifacts=%s verified=%s configured=%s failed=%s\n' \
+    "${now}" "${latest_source_mtime}" "${#artifacts[@]}" \
+    "${verified_destinations}" "${#remotes[@]}" "${failed_destinations}" \
     >"${status_tmp}"
 chmod 0600 "${status_tmp}"
 mv -f -- "${status_tmp}" "${status_file}"
@@ -188,6 +197,12 @@ status_tmp=''
 find "${artifact_dir}" -maxdepth 1 -type f -name 'database-*.sqlite.gz.age' \
     -mtime "+${local_keep_days}" -delete
 
+if (( failed_destinations > 0 )); then
+    printf 'guestbook-offsite: FAIL component=transport reason=redundancy-degraded verified=%s failed=%s\n' \
+        "${verified_destinations}" "${failed_destinations}" >&2
+    exit 1
+fi
+
 printf 'guestbook-offsite: ok artifacts=%s created=%s destinations=%s source_age_seconds=%s\n' \
-    "${#artifacts[@]}" "${created}" "${#remotes[@]}" "${source_age}"
+    "${#artifacts[@]}" "${created}" "${verified_destinations}" "${source_age}"
 trap - EXIT

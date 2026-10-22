@@ -58,7 +58,7 @@ backup_mtime="$(stat -c '%Y' "${backup_dir}/database-20260101T000000Z.sqlite.gz"
 printf 'success_epoch=%s backup_mtime=%s migrations=4\n' \
     "${now_epoch}" "${backup_mtime}" >"${restore_status_file}"
 chmod 0600 "${restore_status_file}"
-printf 'success_epoch=%s source_mtime=%s artifacts=1 destinations=2\n' \
+printf 'success_epoch=%s source_mtime=%s artifacts=1 verified=2 configured=2 failed=0\n' \
     "${now_epoch}" "${backup_mtime}" >"${offsite_status_file}"
 chmod 0600 "${offsite_status_file}"
 
@@ -152,7 +152,7 @@ printf 'success_epoch=%s backup_mtime=%s migrations=4\n' \
     "${now_epoch}" "${backup_mtime}" >"${restore_status_file}"
 
 stale_offsite_epoch="$(( $(date +%s) - 259200 ))"
-printf 'success_epoch=%s source_mtime=%s artifacts=1 destinations=2\n' \
+printf 'success_epoch=%s source_mtime=%s artifacts=1 verified=2 configured=2 failed=0\n' \
     "${stale_offsite_epoch}" "${backup_mtime}" >"${offsite_status_file}"
 set +e
 offsite_output="$(env "${health_env[@]}" bash "${repo_dir}/scripts/healthcheck.sh" 2>&1)"
@@ -161,7 +161,18 @@ set -e
 [[ "${offsite_exit}" -ne 0 ]]
 [[ "${offsite_output}" == *'component=offsite reason=stale'* ]]
 now_epoch="$(date +%s)"
-printf 'success_epoch=%s source_mtime=%s artifacts=1 destinations=2\n' \
+printf 'success_epoch=%s source_mtime=%s artifacts=1 verified=2 configured=2 failed=0\n' \
+    "${now_epoch}" "${backup_mtime}" >"${offsite_status_file}"
+
+printf 'success_epoch=%s source_mtime=%s artifacts=1 verified=1 configured=2 failed=1\n' \
+    "${now_epoch}" "${backup_mtime}" >"${offsite_status_file}"
+set +e
+degraded_output="$(env "${health_env[@]}" bash "${repo_dir}/scripts/healthcheck.sh" 2>&1)"
+degraded_exit=$?
+set -e
+[[ "${degraded_exit}" -ne 0 ]]
+[[ "${degraded_output}" == *'component=offsite reason=redundancy-degraded'* ]]
+printf 'success_epoch=%s source_mtime=%s artifacts=1 verified=2 configured=2 failed=0\n' \
     "${now_epoch}" "${backup_mtime}" >"${offsite_status_file}"
 
 chmod 0644 "${release_dir}/index.php"

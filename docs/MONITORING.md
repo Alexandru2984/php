@@ -44,7 +44,7 @@ The guestbook probe checks:
 | Admin authentication abuse | 5 failed/blocked attempts in 15 minutes | Next five-minute probe |
 | Unreviewed abuse-report backlog | 10 open reports | Next five-minute probe |
 | Backup missing, invalid or old | Older than 30 hours | Next five-minute probe |
-| Off-host copies failed or stopped | Either provider fails, or marker older than 30 hours | Immediate dispatch or next five-minute probe |
+| Off-host copies failed or stopped | Either provider fails, or marker older than 30 hours | Immediate dispatch plus next five-minute probe; a verified surviving copy is still recorded |
 | Restore drill failed or stopped | Failed job or marker older than 8 days | Immediate dispatch or next five-minute probe |
 | Permission or immutable-release drift | Any mismatch | Next five-minute probe |
 | Disk pressure | 90% used | Next five-minute probe |

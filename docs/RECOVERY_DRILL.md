@@ -66,6 +66,9 @@ recovery key, then immutable copy and checksum verification at Google Drive and
 Cloudflare R2. Neither destination receives plaintext. The script never mirrors local
 deletion, overwrites different remote content or deletes remote history. The rclone
 config is exposed only as a systemd credential during the sandboxed job.
+Every configured destination is attempted even when an earlier provider fails. A
+verified surviving copy is recorded for recovery, while the job and health probe stay
+failed until full redundancy returns; partial success is never reported as healthy.
 
 The deployed recipient is pinned by file digest and its private key is not on the
 VPS, so host loss does not remove the decryption key. Key loss is still a single point
