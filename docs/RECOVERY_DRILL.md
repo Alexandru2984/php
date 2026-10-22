@@ -70,6 +70,15 @@ Every configured destination is attempted even when an earlier provider fails. A
 verified surviving copy is recorded for recovery, while the job and health probe stay
 failed until full redundancy returns; partial success is never reported as healthy.
 
+### Production status — 2026-10-22
+
+The first production run encrypted 24 local snapshots and verified all 24 at the R2
+namespace with zero differences. Google Drive rejected its uploads with
+`storageQuotaExceeded`. The marker records one verified and one failed destination;
+both the off-site job and health probe remain failed and the host pager was triggered.
+Free Drive capacity or replace it with an independent second provider before calling
+the redundancy control complete. No remote object was deleted or overwritten.
+
 The deployed recipient is pinned by file digest and its private key is not on the
 VPS, so host loss does not remove the decryption key. Key loss is still a single point
 of failure: add a second separately stored age recipient, revalidate its fingerprint

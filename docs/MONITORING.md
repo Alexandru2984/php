@@ -54,6 +54,9 @@ The guestbook probe checks:
 The same incident fingerprint is throttled by the host pager. A different failure is
 sent immediately. Recovery generates one resolved notification only when a matching
 incident was active. Journald remains the record of record when Telegram is down.
+On 2026-10-22 the first live off-host run verified 24 R2 artifacts but detected a full
+Google Drive. The resulting `redundancy-degraded` state is intentionally not silenced;
+R2 remains recoverable while provider capacity is remediated.
 
 ## Privacy-safe payload contract
 

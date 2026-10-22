@@ -17,7 +17,8 @@ criteria.
   a sessionless versioned read API, signed cursor pagination, strong ETags and
   OpenAPI; responsive/accessibility foundations from Stage 6; pinned CI,
   `security.txt` and hardened systemd jobs from Stage 8.
-- **Next priority:** a second offline recovery recipient plus a human off-host drill,
+- **Next priority:** restore Google Drive capacity or replace the degraded second
+  off-host provider, add a second offline recovery recipient plus a human off-host drill,
   an incident-response tabletop, browser accessibility checks, SQLite FTS5
   search, retention/export/erasure operations, a dedicated API edge limit and
   risk-scored submission heuristics that queue rather than delete content.
