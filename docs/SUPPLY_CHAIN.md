@@ -13,6 +13,14 @@ token test also proves the candidate itself is absent from scanner output. Brows
 dependencies are installed separately with lifecycle scripts disabled, audited, and
 reviewed on pull requests.
 
+The production analytics tracker is an explicit vendored exception rather than a
+package-manager dependency. `assets/analytics.js` is copied from the operator's
+self-hosted MIT-licensed Umami instance, its upstream notice is preserved in
+`THIRD_PARTY_NOTICES.md`, and its SHA-256 digest is asserted by unit, HTTP and live
+health checks. The analytics origin is allowed by `connect-src` only, not
+`script-src`. Updating the asset requires reviewing the upstream diff, license,
+collection payload, pinned digest and CSP before commit.
+
 This is defense in depth, not a replacement for GitHub secret scanning or review.
 Regex checks can miss unknown credential formats and cannot revoke a leaked value.
 If a candidate ever enters Git history, rotate/revoke it first, preserve evidence and

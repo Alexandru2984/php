@@ -26,7 +26,8 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 - Responsive admin workspace with status totals, controlled reasons and security events.
 - Read-only JSON API: `/?format=json` (supports `q` and `page`).
 - Privacy minimisation that detaches abuse-prevention identifiers after 24 hours;
-  analytics is opt-in through configuration.
+  analytics is opt-in through configuration and its reviewed tracker is served from
+  the versioned release with a pinned digest.
 - Mobile-first responsive layout with keyboard, reduced-motion, forced-colors and
   screen-reader affordances, continuously checked in real Chromium with Axe.
 

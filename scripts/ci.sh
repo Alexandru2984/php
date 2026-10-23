@@ -9,6 +9,7 @@ for file in ./*.php scripts/*.php tests/*.php; do
 done
 
 node --check assets/app.js
+node --check assets/analytics.js
 node --check assets/theme-init.js
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016

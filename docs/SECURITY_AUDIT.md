@@ -67,7 +67,7 @@ incomplete.
 | S-12 | Low | Reversible moderation and audit are deployed; purge policy remains deferred. | Five states, controlled reasons, a report queue, atomic transitions and trigger-protected append-only audit remove immediate-deletion and repudiation risk. Permanent purge and bulk actions are intentionally absent. | Define purge authorization/retention before adding permanent deletion; keep public reports non-automatic. |
 | S-13 | Medium | Encrypted off-host copying is deployed, but provider redundancy is degraded. | The first production run age-encrypted 24 snapshots and verified all 24 at R2 with zero differences. Google Drive rejected every upload because its storage quota is exceeded; the job, health probe and pager correctly remain failed/degraded. Jobs never send plaintext or delete remote history. One recovery recipient, shared-scope provider credentials and the absence of a downloaded-artifact human drill remain failure modes. | Restore Drive capacity or replace it with an independent provider; add a second offline recipient, restrict credentials per namespace, enforce documented remote retention and execute a quarterly downloaded-artifact drill. |
 | S-14 | Low | API v1 is stateless and cache-consistent; the legacy JSON shape remains temporarily. | `/api/v1/messages` creates no session/cookie, exposes published columns only, uses signed indexed cursors, strong ETags and explicit public cache semantics. The old query-format feed is private/no-store and marked deprecated. | Migrate remaining consumers, measure usage, then remove the legacy JSON format in a separately announced release. |
-| S-15 | Medium | Self-hosted analytics expands the script trust boundary. | The CSP permits the VPS-hosted analytics origin to execute scripts. The tracker is domain-bound, DNT-aware and excludes query/hash, and the public notice exists; origin compromise still becomes same-page script execution. | Pin/review upgrades, document retention/processor basis and consider serving a verified local tracker asset. |
+| S-15 | Low | Analytics still receives bounded telemetry, but no longer expands the remote script trust boundary. | A reviewed Umami tracker copy is versioned locally and pinned by SHA-256 in tests and the live health probe. CSP removes the analytics origin from `script-src` while retaining only `connect-src`; the tracker remains domain-bound, DNT-aware and excludes query/hash. Backend compromise can disrupt or receive the documented aggregate payload but cannot replace executable page code. | Review upstream changes before deliberately replacing the local asset and pinned digest; document analytics retention/processor basis and alert on digest drift. |
 | S-16 | Low | Application method and canonical-path handling relies on the edge. | Unsupported methods are rejected live by nginx/Cloudflare, but the PHP controller treats every non-POST method as a read; `/index.php/...` also renders successfully. | Enforce `GET`, `HEAD`, and `POST` in PHP, reject path-info, and add canonical redirects/tests. |
 | S-17 | Low | Real-browser CI is implemented; human accessibility and repository enforcement remain. | Exact-version Playwright/Axe checks run against isolated state at 320–1440px, enforce WCAG A/AA rules in both themes, keyboard focus, touch targets and zero overflow. Automated review caught and fixed contrast and accessible-name defects. Lighthouse, 200% zoom, screen-reader sign-off and confirmation that the job is required by branch protection remain open. | Complete and record the manual matrix, add Lighthouse budgets, then require both CI jobs in GitHub branch protection after push. |
 | S-18 | Low | Indexed search removes routine full scans; a dedicated edge limit remains absent. | FTS5 uses generated prepared prefix terms capped at eight, indexed Unicode tokenization, bounded pagination and a published-only join. Hostile FTS grammar, trigger synchronization, query plans and restored-index integrity are tested. Distributed query floods can still create SQLite/CPU contention. | Add a search-specific Cloudflare rate limit and latency/SQLite-busy alert without logging visitor query text. |
@@ -81,14 +81,16 @@ incomplete.
 **Date:** 2026-10-24
 
 - **Threat model:** the top risks are information disclosure to another user of the
-  same browser profile (medium likelihood/low impact), DOM injection through preview
-  content (low/high), and storage exhaustion or corrupt client state (low/low).
-  Opt-in storage, strict length/type/expiry validation, `textContent`, explicit
-  deletion and exception-safe feature detection mitigate them.
+  same browser profile (medium likelihood/low impact), analytics-script substitution
+  reading draft storage (low/high), and DOM injection through preview content
+  (low/high). Opt-in storage, strict length/type/expiry validation, `textContent`,
+  explicit deletion, a versioned/digest-pinned local tracker and removal of remote
+  analytics `script-src` permission mitigate them.
 - **Blast radius:** compromise is limited to the single opted-in name/message in one
   browser origin; no server database, other visitor, credential, network identifier
-  or moderation record is reachable through this feature. A FAIR dollar estimate is
-  not defensible without incident-frequency and response-cost inputs.
+  or moderation record is reachable through this feature. The analytics backend can
+  no longer replace the executable tracker. A FAIR dollar estimate is not defensible
+  without incident-frequency and response-cost inputs.
 - **Detection:** seven Chromium scenarios now detect persistence, 24-hour expiry,
   deletion, post-submit clearing, XSS regression, accessibility and mobile overflow
   before release. Client storage is intentionally not telemetered, so server-side MTTD
@@ -99,8 +101,10 @@ incomplete.
 - **Regulatory:** an opted-in draft may contain personal data, but remains on the data
   subject's device and is not received by the operator before form submission. Any
   qualifying server-side breach retains the GDPR 72-hour assessment window.
-- **Vendors and supply chain:** no package, vendor, API, cookie, permission or new
-  network recipient is added.
+- **Vendors and supply chain:** no new vendor, API, cookie, permission or network
+  recipient is added. The existing MIT-licensed Umami tracker is now a reviewed local
+  asset with its license notice and pinned digest; upstream updates require an explicit
+  source, hash, test and CSP review.
 
 **Verdict:** 🟢 SHIP. Residual shared-device exposure is clearly disclosed and under
 the visitor's control.
@@ -182,8 +186,9 @@ assessment remains the controller's responsibility.
   five-minute Telegram alert/report bot.
 - Telegram: operational alert delivery; payloads are restricted to non-visitor
   component state and fixed reason codes.
-- Analytics service at `analytics.micutu.com`: executable JavaScript and visitor
-  telemetry; ownership, software version, retention and DPA need recording.
+- Analytics service at `analytics.micutu.com`: bounded visitor telemetry endpoint;
+  its reviewed tracker is versioned locally and the remote origin has no script
+  execution permission. Ownership, software version, retention and DPA need recording.
 - VPS, OS packages and certificate automation: hosting and infrastructure access.
 - GitHub: source hosting; branch protection, MFA, deploy keys and secret-scanning
   settings were not visible from this host and remain to be verified.

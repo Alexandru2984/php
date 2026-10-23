@@ -37,6 +37,13 @@ grep --quiet '^IPAddressDeny=169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.168.0
 grep --quiet '^OnFailure=swift-vapor-alert@%n.service$' "${offsite_service}"
 grep --quiet '^OnSuccess=php-guestbook-offsite.service$' ops/systemd/php-guestbook-backup.service
 grep --quiet 'try_files /robots.txt =404;' "${nginx_config}"
+grep --fixed-strings --quiet "script-src 'self' 'nonce-\$request_id' https://static.cloudflareinsights.com" \
+    "${nginx_config}"
+grep --fixed-strings --quiet "connect-src 'self' https://analytics.micutu.com" "${nginx_config}"
+if grep --quiet "script-src[^;]*analytics\.micutu\.com" "${nginx_config}"; then
+    echo 'The analytics origin unexpectedly retains script execution permission.' >&2
+    exit 1
+fi
 if grep --quiet '/srv/canary/shared/robots.txt' "${nginx_config}"; then
     echo 'Nginx still points at the unversioned shared robots file.' >&2
     exit 1

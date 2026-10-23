@@ -177,6 +177,8 @@ fi
 csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${html}" | head -n 1)"
 [[ "${csrf}" =~ ^[0-9a-f]{64}$ ]]
 grep --quiet 'data-website-id="c4e3a772-26b3-47e7-afec-b82097684551"' <<<"${html}"
+grep --quiet 'src="/assets/analytics.js?v=[0-9]\+"' <<<"${html}"
+grep --fixed-strings --quiet 'data-host-url="https://analytics.micutu.com"' <<<"${html}"
 grep --quiet 'data-domains="php.micutu.com"' <<<"${html}"
 grep --quiet 'data-do-not-track="true"' <<<"${html}"
 grep --quiet 'data-exclude-search="true"' <<<"${html}"
@@ -189,6 +191,9 @@ grep --fixed-strings --quiet '<meta property="og:site_name" content="Micuțu Gue
 grep --fixed-strings --quiet 'itemtype="https://schema.org/WebSite"' <<<"${html}"
 grep --fixed-strings --quiet 'href="/feed.xml"' <<<"${html}"
 grep --fixed-strings --quiet 'href="/assets/favicon.svg"' <<<"${html}"
+analytics_asset="$(curl --silent --show-error --fail "${APP_ORIGIN}/assets/analytics.js")"
+[[ "$(sha256sum <<<"${analytics_asset}" | cut -d' ' -f1)" == \
+    be444c289ac019af8486b50fe2bbf2fdb2890812fb945dc78940b6781a68ac52 ]]
 
 request_code() {
     curl --silent --show-error --output /dev/null --write-out '%{http_code}' "$@"

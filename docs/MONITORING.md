@@ -66,9 +66,12 @@ fixed reason code. Never emit message bodies, author names, raw or hashed IP val
 query strings, CSRF/session values, database rows, credentials or arbitrary exception
 objects. Alert messages contain no direct links and no visitor-controlled strings.
 
-Umami is self-hosted. Its tracker is domain-bound, respects Do Not Track, excludes URL
-search and hash values, and collects aggregate page and Core Web Vitals data. It does
-not receive a guestbook user identifier from this application.
+Umami is self-hosted. A reviewed tracker copy is served from the guestbook release,
+has a SHA-256 digest pinned in unit and production-health checks, is domain-bound,
+respects Do Not Track and excludes URL search/hash values. The analytics origin keeps
+`connect-src` access for aggregate page/Core Web Vitals delivery but no longer has
+`script-src` permission. It does not receive a guestbook user identifier or form field
+from this application.
 
 ## CISO review
 

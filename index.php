@@ -681,8 +681,9 @@ $reportLabels = [
     <script src="<?php echo e(asset('assets/theme-init.js')); ?>"></script>
     <script defer src="<?php echo e(asset('assets/app.js')); ?>"></script>
     <?php if (ANALYTICS_WEBSITE_ID !== ''): ?>
-    <script defer src="https://analytics.micutu.com/script.js"
+    <script defer src="<?php echo e(asset('assets/analytics.js')); ?>"
             data-website-id="<?php echo e(ANALYTICS_WEBSITE_ID); ?>"
+            data-host-url="https://analytics.micutu.com"
             data-domains="php.micutu.com"
             data-do-not-track="true"
             data-exclude-search="true"
@@ -1112,7 +1113,7 @@ $reportLabels = [
             <p>Abuse reports contain only the selected category and message number. They do not store a reporter identifier or free-text explanation. Reviewed reports are deleted after 90 days; minimal append-only admin actions remain for accountability.</p>
             <p>Draft saving is optional. When enabled, the name and message stay only in this browser's local storage, expire after 24 hours and are removed after a successful submission. Previewing never sends additional data or renders message HTML.</p>
             <?php if (ANALYTICS_WEBSITE_ID !== ''): ?>
-            <p>This deployment loads self-hosted analytics from <code>analytics.micutu.com</code>. It respects Do Not Track, excludes query strings and URL fragments, and records aggregate page and performance data.</p>
+            <p>This deployment loads a reviewed, versioned analytics tracker from this site and sends aggregate page and performance data to the self-hosted <code>analytics.micutu.com</code> endpoint. It respects Do Not Track and excludes query strings, URL fragments and form content.</p>
             <?php else: ?>
             <p>Optional analytics is disabled on this deployment.</p>
             <?php endif; ?>

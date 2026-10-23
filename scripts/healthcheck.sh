@@ -118,6 +118,10 @@ if [[ -n "${analytics_id}" ]]; then
         || fail configuration analytics-id-invalid
     [[ "${html}" == *"data-website-id=\"${analytics_id}\""* ]] \
         || fail analytics website-id-missing
+    [[ "${html}" == *'src="/assets/analytics.js?v='* ]] \
+        || fail analytics local-tracker-missing
+    [[ "${html}" == *'data-host-url="https://analytics.micutu.com"'* ]] \
+        || fail analytics host-url-missing
     for attribute in \
         'data-domains="php.micutu.com"' \
         'data-do-not-track="true"' \
@@ -128,6 +132,12 @@ if [[ -n "${analytics_id}" ]]; then
     done
     curl "${curl_args[@]}" --output /dev/null "${analytics_url}" \
         || fail analytics tracker-unavailable
+    tracker_digest="$(curl "${curl_args[@]}" "${base_url}/assets/analytics.js" \
+        | sha256sum | cut -d' ' -f1)" || fail analytics local-tracker-unavailable
+    [[ "${tracker_digest}" == \
+        be444c289ac019af8486b50fe2bbf2fdb2890812fb945dc78940b6781a68ac52 ]] \
+        || fail analytics local-tracker-digest-invalid
+    unset tracker_digest
 fi
 unset html
 

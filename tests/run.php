@@ -38,6 +38,11 @@ function check(bool $condition, string $description): void
 check(e('<script>"x"</script>') === '&lt;script&gt;&quot;x&quot;&lt;/script&gt;', 'HTML is escaped');
 check(xml_e('<tag>&"') === '&lt;tag&gt;&amp;&quot;', 'XML is escaped');
 check(
+    hash_file('sha256', APP_ROOT . '/assets/analytics.js')
+        === 'be444c289ac019af8486b50fe2bbf2fdb2890812fb945dc78940b6781a68ac52',
+    'reviewed analytics tracker digest is pinned'
+);
+check(
     seo_excerpt("  A message\nwith   spacing  ") === 'A message with spacing',
     'SEO descriptions collapse whitespace'
 );
