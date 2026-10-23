@@ -11,7 +11,7 @@ moderation-state disclosure.
 Canonical URLs are absolute and deterministic:
 
 - homepage: `https://php.micutu.com/`;
-- published message: `https://php.micutu.com/?message=ID`;
+- published message: `https://php.micutu.com/messages/ID`;
 - archive page: `https://php.micutu.com/?page=N`;
 - search results preserve their query in a self-canonical URL but remain `noindex`.
 
@@ -33,8 +33,11 @@ RSS discovery. It uses no client-side rendering and no new third-party script.
 
 The homepage exposes `WebSite` microdata with a visible matching site name. A message
 permalink exposes `DiscussionForumPosting`, `Person`, full visible text and an ISO
-publication time. Microdata avoids weakening the CSP for inline JSON-LD and is emitted
-only when the same published content is visible on the page.
+publication time. Its visible two-level breadcrumb also exposes `BreadcrumbList`.
+Legacy `/?message=ID` links redirect permanently without creating a session, while
+malformed or mixed canonical parameters fail closed. Microdata avoids weakening the
+CSP for inline JSON-LD and is emitted only when the same published content is visible
+on the page.
 
 Each visible message also has a progressively enhanced Share control. It sends only
 the canonical permalink and a generic numeric title to the browser's native share
@@ -51,7 +54,7 @@ and [discussion-forum structured data](https://developers.google.com/search/docs
 
 ## CISO review
 
-**Date:** 2026-10-23
+**Date:** 2026-10-24
 
 ### Threat model
 
@@ -61,8 +64,9 @@ and [discussion-forum structured data](https://developers.google.com/search/docs
    prove immediate removal from both discovery documents.
 2. **Tampering/spoofing — medium likelihood/medium impact:** visitor text could inject
    markup, misleading metadata or a hostile canonical URL. Mitigation: canonical URLs
-   are application-generated, XML and HTML contexts are independently escaped, titles
-   are length-bounded and structured fields exactly mirror visible content.
+   are application-generated from strictly positive numeric identifiers, clean paths
+   reject query mixing, XML and HTML contexts are independently escaped, titles are
+   length-bounded and structured fields exactly mirror visible content.
 3. **Denial of service — low likelihood/medium impact:** crawler bursts could repeatedly
    generate large XML documents. Mitigation: a 49,999-row upper bound, indexed status
    queries, strong ETags, short shared caching and the existing edge request limit.
@@ -82,10 +86,11 @@ evidence does not support inventing a dollar value.
 
 ### Detection and response
 
-The five-minute health probe validates RSS, sitemap XML and the exact robots sitemap
-directive through Cloudflare. CI separately proves sessionlessness, cache headers,
-XML validity, canonical metadata, moderated-content removal, browser-visible
-microdata and explicit share invocation. On leakage, hide the record, purge the affected Cloudflare cache object,
+The five-minute health probe validates RSS, sitemap XML, the exact robots sitemap
+directive and a current clean permalink through Cloudflare. CI separately proves the
+legacy redirect is sessionless, canonical paths reject mixed parameters, hidden
+records return 404, and validates cache headers, XML, browser-visible microdata and
+explicit share invocation. On leakage, hide the record, purge the affected Cloudflare cache object,
 remove the URL through the relevant search console when necessary, preserve logs and
 follow the [incident-response runbook](INCIDENT_RESPONSE.md). A search-console review
 and crawler-leak tabletop remain manual follow-ups.
@@ -104,6 +109,13 @@ data breach still requires controller assessment against GDPR's 72-hour window.
 **Verdict:** 🟡 MITIGATE THEN SHIP. The technical leakage controls and rollback are
 present; data-subject operations and post-deploy Search Console validation remain.
 
-The change adds no schema migration. Rollback is the normal atomic release symlink
-switch plus restoration of the preceding nginx configuration. Cached discovery
-documents should be purged if rollback responds to a content-disclosure defect.
+The change adds no schema migration, package or vendor. Worst-case blast radius
+remains every non-public message if the publication predicate regresses; the route
+does not select network hashes, audit data or secrets. A defensible FAIR annual-loss
+estimate still lacks incident frequency and response-cost inputs, so no dollar value
+is invented. The incident runbook exists, but the crawler-leak tabletop remains due;
+a qualifying GDPR breach keeps the 72-hour controller assessment window.
+
+Rollback is the normal atomic release symlink switch. Cached discovery documents and
+legacy redirects should be purged if rollback responds to a content-disclosure or
+canonicalization defect.

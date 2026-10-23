@@ -34,7 +34,7 @@ Successful document shape:
       "author": "Example",
       "content": "A public message",
       "created_at": "2026-10-21T12:00:00Z",
-      "url": "https://php.micutu.com/?message=3"
+      "url": "https://php.micutu.com/messages/3"
     }
   ],
   "pagination": {

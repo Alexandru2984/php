@@ -235,15 +235,28 @@ post_code="$(request_code \
 
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" 'SELECT COUNT(*) FROM messages;')" == 1 ]]
 message_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT id FROM messages WHERE status = 'published' LIMIT 1;")"
-permalink_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/?message=${message_id}")"
+legacy_permalink_headers="${tmp_dir}/legacy-permalink-headers.txt"
+legacy_permalink_body="${tmp_dir}/legacy-permalink-body.txt"
+[[ "$(curl --silent --show-error --dump-header "${legacy_permalink_headers}" \
+    --output "${legacy_permalink_body}" --write-out '%{http_code}' \
+    "${APP_ORIGIN}/?message=${message_id}")" == 301 ]]
+grep --ignore-case --quiet "^Location: /messages/${message_id}" "${legacy_permalink_headers}"
+if grep --ignore-case --quiet '^Set-Cookie:' "${legacy_permalink_headers}"; then
+    echo 'Legacy permalink redirect unexpectedly emitted a cookie.' >&2
+    exit 1
+fi
+[[ ! -s "${legacy_permalink_body}" ]]
+permalink_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/messages/${message_id}")"
 grep --quiet 'Hello from the isolated smoke test' <<<"${permalink_html}"
 grep --quiet 'No free-text report or reporter identifier is stored.' <<<"${permalink_html}"
 grep --fixed-strings --quiet '<title>Message by Alice · Micuțu Guestbook</title>' <<<"${permalink_html}"
-grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}/?message=${message_id}\">" <<<"${permalink_html}"
+grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}/messages/${message_id}\">" <<<"${permalink_html}"
 grep --fixed-strings --quiet 'itemtype="https://schema.org/DiscussionForumPosting"' <<<"${permalink_html}"
+grep --fixed-strings --quiet 'itemtype="https://schema.org/BreadcrumbList"' <<<"${permalink_html}"
+grep --fixed-strings --quiet 'aria-current="page"' <<<"${permalink_html}"
 grep --fixed-strings --quiet 'itemprop="datePublished"' <<<"${permalink_html}"
 grep --fixed-strings --quiet 'itemprop="text"' <<<"${permalink_html}"
-grep --fixed-strings --quiet "data-share-path=\"/?message=${message_id}\"" <<<"${permalink_html}"
+grep --fixed-strings --quiet "data-share-path=\"/messages/${message_id}\"" <<<"${permalink_html}"
 grep --fixed-strings --quiet "data-share-title=\"Micuțu Guestbook message #${message_id}\"" <<<"${permalink_html}"
 grep --fixed-strings --quiet 'class="share-button" type="button" hidden' <<<"${permalink_html}"
 if grep --fixed-strings --quiet 'data-share-title="Micuțu Guestbook message by Alice' <<<"${permalink_html}"; then
@@ -251,7 +264,9 @@ if grep --fixed-strings --quiet 'data-share-title="Micuțu Guestbook message by 
     exit 1
 fi
 [[ "$(request_code "${APP_ORIGIN}/?message%5B%5D=${message_id}")" == 400 ]]
-[[ "$(request_code "${APP_ORIGIN}/?message=999999999")" == 404 ]]
+[[ "$(request_code "${APP_ORIGIN}/messages/999999999")" == 404 ]]
+[[ "$(request_code "${APP_ORIGIN}/messages/${message_id}?q=hello")" == 400 ]]
+[[ "$(request_code "${APP_ORIGIN}/messages/not-a-number")" == 404 ]]
 [[ "$(request_code "${APP_ORIGIN}/?message=${message_id}&q=hello")" == 400 ]]
 [[ "$(request_code "${APP_ORIGIN}/?page=999999")" == 404 ]]
 
@@ -281,8 +296,8 @@ grep --quiet 'Message received and queued for moderator review.' <<<"${queued_ht
 public_html="$(curl --silent --show-error "${APP_ORIGIN}/")"
 [[ "$(grep -o 'Hello from the isolated smoke test' <<<"${public_html}" | wc -l)" == 1 ]]
 sitemap_populated="$(curl --silent --show-error "${APP_ORIGIN}/sitemap.xml")"
-grep --fixed-strings --quiet "${APP_ORIGIN}/?message=${message_id}" <<<"${sitemap_populated}"
-[[ "$(grep -o '?message=' <<<"${sitemap_populated}" | wc -l)" == 1 ]]
+grep --fixed-strings --quiet "${APP_ORIGIN}/messages/${message_id}" <<<"${sitemap_populated}"
+[[ "$(grep -o '/messages/' <<<"${sitemap_populated}" | wc -l)" == 1 ]]
 feed_populated="$(curl --silent --show-error "${APP_ORIGIN}/feed.xml")"
 [[ "$(grep -o 'Hello from the isolated smoke test' <<<"${feed_populated}" | wc -l)" == 1 ]]
 
@@ -403,7 +418,7 @@ if grep --quiet 'Hello from the isolated smoke test' <<<"${hidden_search_html}";
 fi
 hidden_sitemap="$(curl --silent --show-error "${APP_ORIGIN}/sitemap.xml")"
 hidden_feed="$(curl --silent --show-error "${APP_ORIGIN}/feed.xml")"
-if grep --fixed-strings --quiet "?message=${message_id}" <<<"${hidden_sitemap}" \
+if grep --fixed-strings --quiet "/messages/${message_id}" <<<"${hidden_sitemap}" \
     || grep --fixed-strings --quiet 'Hello from the isolated smoke test' <<<"${hidden_feed}"; then
     echo 'A discovery document exposed a moderated message.' >&2
     exit 1

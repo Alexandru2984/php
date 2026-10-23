@@ -153,10 +153,12 @@ test('SEO metadata, canonical permalinks and structured data match visible conte
   await expect(page.locator('[itemtype="https://schema.org/WebSite"]')).toContainText('Micuțu Guestbook');
 
   const permalink = await page.locator('.permalink').first().getAttribute('href');
-  expect(permalink).toMatch(/^\/\?message=\d+#m\d+$/);
+  expect(permalink).toMatch(/^\/messages\/\d+#m\d+$/);
   await page.goto(permalink);
   await expect(page).toHaveTitle(/Message by Browser check · Micuțu Guestbook/);
-  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/\?message=\d+$/);
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/messages\/\d+$/);
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Guestbook');
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(/Message #\d+/);
   await expect(page.locator('[itemtype="https://schema.org/DiscussionForumPosting"] [itemprop="text"]'))
     .toHaveText('Responsive accessibility flow');
 
@@ -186,7 +188,7 @@ test('message sharing is explicit, canonical and progressively enhanced', async 
 
   const payload = await page.evaluate(() => window.__sharedPayload);
   expect(payload.title).toMatch(/^Micuțu Guestbook message #\d+$/);
-  expect(payload.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/\?message=\d+$/);
+  expect(payload.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/messages\/\d+$/);
   expect(payload.title).not.toContain('Browser check');
   await expect(page.locator('[data-share-status]')).toHaveText('Message link shared.');
 

@@ -10,7 +10,8 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 - Post messages with an optional name; colored deterministic avatars.
 - Unicode, diacritic-insensitive SQLite FTS5 search with relevance ranking, prefix
   indexes, bounded plain-text queries and pagination.
-- Permanent message links and a cache-aware RSS 2.0 feed (`/feed.xml`).
+- Clean permanent message links (`/messages/ID`) and a cache-aware RSS 2.0 feed
+  (`/feed.xml`).
 - Progressive native sharing with a local clipboard fallback and no third-party SDK.
 - Technical SEO with stable canonical URLs, versioned robots policy, a sessionless
   XML sitemap/RSS feed, social metadata and forum-posting structured data.

@@ -9,21 +9,41 @@ $requestPath = is_string($requestPath) ? $requestPath : '';
 $isApiV1 = $requestPath === '/api/v1/messages';
 $isSitemap = $requestPath === '/sitemap.xml';
 $isFeed = $requestPath === '/feed.xml';
-$isInteractiveUi = in_array($requestPath, ['/', '/index.php'], true);
+$messagePathId = null;
+if (preg_match('#\A/messages/([1-9][0-9]{0,18})\z#D', $requestPath, $messagePathMatch) === 1) {
+    $parsedMessagePathId = filter_var($messagePathMatch[1], FILTER_VALIDATE_INT);
+    if ($parsedMessagePathId !== false) {
+        $messagePathId = $parsedMessagePathId;
+    }
+}
+$isInteractiveUi = in_array($requestPath, ['/', '/index.php'], true)
+    || $messagePathId !== null;
 $rawFormatHint = $_GET['format'] ?? null;
 $isStatelessLegacyRead = $isInteractiveUi
     && in_array($method, ['GET', 'HEAD'], true)
     && is_string($rawFormatHint)
     && in_array($rawFormatHint, ['json', 'rss'], true);
+$legacyMessageHint = $_GET['message'] ?? null;
+$isLegacyMessageRedirect = in_array($requestPath, ['/', '/index.php'], true)
+    && in_array($method, ['GET', 'HEAD'], true)
+    && count($_GET) === 1
+    && is_string($legacyMessageHint)
+    && preg_match('/\A[1-9][0-9]{0,18}\z/D', $legacyMessageHint) === 1
+    && filter_var($legacyMessageHint, FILTER_VALIDATE_INT) !== false;
 
 define('GUESTBOOK_APP', true);
 define(
     'GUESTBOOK_STATELESS_REQUEST',
-    !$isInteractiveUi || $isStatelessLegacyRead
+    !$isInteractiveUi || $isStatelessLegacyRead || $isLegacyMessageRedirect
 );
 require __DIR__ . '/config.php';
 require __DIR__ . '/lib.php';
 require __DIR__ . '/api.php';
+
+if ($isLegacyMessageRedirect) {
+    header('Location: ' . public_message_path((int) $legacyMessageHint), true, 301);
+    exit;
+}
 
 if (!in_array($method, ['GET', 'HEAD', 'POST'], true)) {
     $readOnlyRoute = $isApiV1 || $isSitemap || $isFeed;
@@ -33,7 +53,8 @@ if (!in_array($method, ['GET', 'HEAD', 'POST'], true)) {
     }
     abort_response(405, 'Method not allowed.');
 }
-if (!$isApiV1 && !$isSitemap && !$isFeed && !empty($_SERVER['PATH_INFO'])) {
+if (!$isApiV1 && !$isSitemap && !$isFeed && $messagePathId === null
+    && !empty($_SERVER['PATH_INFO'])) {
     abort_response(404, 'Not found.');
 }
 
@@ -294,7 +315,7 @@ if ($method === 'POST') {
         if (rate_limit_retry_after($pdo, 'abuse-report', $reportSubject) > 0) {
             security_event($pdo, 'abuse.report', 'blocked', null, $id);
             flash_set('error', 'Too many reports. Please try again later.');
-            redirect('/?message=' . $id . '#m' . $id);
+            redirect(public_message_path($id, true));
         }
 
         $created = create_abuse_report($pdo, $id, $category);
@@ -306,7 +327,7 @@ if ($method === 'POST') {
             security_event($pdo, 'abuse.report', 'failure', null, $id);
             flash_set('error', 'That message is no longer available for reporting.');
         }
-        redirect('/?message=' . $id . '#m' . $id);
+        redirect(public_message_path($id, true));
     }
 
     if ($action === 'review_report') {
@@ -404,15 +425,16 @@ if ($rawQuery === null && array_key_exists('q', $_GET)) {
     abort_response(400, 'Invalid query.');
 }
 $q      = mb_substr(trim($rawQuery ?? ''), 0, 100);
-$messageId = null;
+$messageId = $messagePathId;
+if ($messageId !== null && $_GET !== []) {
+    abort_response(400, 'Unsupported permalink parameters.');
+}
 if (array_key_exists('message', $_GET)) {
-    $messageId = id_input($_GET, 'message');
-    if ($messageId === null) {
+    $legacyMessageId = id_input($_GET, 'message');
+    if ($legacyMessageId === null) {
         abort_response(400, 'Invalid message.');
     }
-    if ($q !== '' || array_key_exists('page', $_GET) || array_key_exists('format', $_GET)) {
-        abort_response(400, 'Unsupported permalink parameters.');
-    }
+    abort_response(400, 'Unsupported permalink parameters.');
 }
 $from = 'messages AS m';
 $whereParts = ["m.status = :status"];
@@ -551,20 +573,19 @@ if ($format !== null && $format !== '') {
     abort_response(400, 'Unsupported format.');
 }
 
-$canonicalParams = [];
 if ($messageId !== null) {
-    $canonicalParams['message'] = $messageId;
+    $canonicalPath = public_message_path($messageId);
 } elseif ($q !== '') {
-    $canonicalParams['q'] = $q;
+    $canonicalParams = ['q' => $q];
     if ($page > 1) {
         $canonicalParams['page'] = $page;
     }
+    $canonicalPath = '/?' . http_build_query($canonicalParams);
 } elseif ($page > 1) {
-    $canonicalParams['page'] = $page;
+    $canonicalPath = '/?page=' . $page;
+} else {
+    $canonicalPath = '/';
 }
-$canonicalPath = '/' . ($canonicalParams !== []
-    ? '?' . http_build_query($canonicalParams)
-    : '');
 $canonicalUrl = APP_ORIGIN . $canonicalPath;
 $primaryMessage = $messageId !== null && isset($messages[0]) ? $messages[0] : null;
 $siteName = 'Micuțu Guestbook';
@@ -701,6 +722,23 @@ $reportLabels = [
         <?php endif; ?>
         <p class="sr-only" aria-live="polite" aria-atomic="true" data-share-status></p>
 
+        <?php if ($messageId !== null): ?>
+        <nav class="breadcrumbs" aria-label="Breadcrumb"
+             itemscope itemtype="https://schema.org/BreadcrumbList">
+            <ol>
+                <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+                    <a itemprop="item" href="/"><span itemprop="name">Guestbook</span></a>
+                    <meta itemprop="position" content="1">
+                </li>
+                <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem"
+                    aria-current="page">
+                    <span itemprop="name">Message #<?php echo $messageId; ?></span>
+                    <meta itemprop="position" content="2">
+                </li>
+            </ol>
+        </nav>
+        <?php endif; ?>
+
         <form method="POST" class="compose">
             <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="post">
@@ -771,9 +809,9 @@ $reportLabels = [
                             <p class="msg-body"<?php echo $isPrimaryPosting ? ' itemprop="text"' : ''; ?>><?php echo e($msg['content']); ?></p>
                             <div class="message-actions">
                                 <div class="message-primary-actions">
-                                    <a class="permalink" href="/?message=<?php echo (int) $msg['id']; ?>#m<?php echo (int) $msg['id']; ?>" aria-label="#<?php echo (int) $msg['id']; ?> · Permalink to message by <?php echo e($name); ?>">#<?php echo (int) $msg['id']; ?> · Permalink</a>
+                                    <a class="permalink" href="<?php echo e(public_message_path((int) $msg['id'], true)); ?>" aria-label="#<?php echo (int) $msg['id']; ?> · Permalink to message by <?php echo e($name); ?>">#<?php echo (int) $msg['id']; ?> · Permalink</a>
                                     <button class="share-button" type="button" hidden
-                                            data-share-path="/?message=<?php echo (int) $msg['id']; ?>"
+                                            data-share-path="<?php echo e(public_message_path((int) $msg['id'])); ?>"
                                             data-share-title="Micuțu Guestbook message #<?php echo (int) $msg['id']; ?>"
                                             aria-label="Share message #<?php echo (int) $msg['id']; ?>">
                                         <?php echo icon('share'); ?> Share

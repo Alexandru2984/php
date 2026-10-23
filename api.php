@@ -131,7 +131,7 @@ function api_list_messages(PDO $pdo, int $limit, ?array $cursor = null): array
             'author' => (string) $message['author'],
             'content' => (string) $message['content'],
             'created_at' => str_replace(' ', 'T', (string) $message['created_at']) . 'Z',
-            'url' => APP_ORIGIN . '/?message=' . (int) $message['id'],
+            'url' => APP_ORIGIN . public_message_path((int) $message['id']),
         ], $rows),
         'pagination' => [
             'limit' => $limit,

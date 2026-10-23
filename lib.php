@@ -54,6 +54,16 @@ function utc_iso8601(string $datetime): string
     return $parsed->format('Y-m-d\TH:i:s\Z');
 }
 
+/** Return the single public path for a published message. */
+function public_message_path(int $id, bool $fragment = false): string
+{
+    if ($id < 1) {
+        throw new InvalidArgumentException('Invalid message identifier');
+    }
+    $path = '/messages/' . $id;
+    return $fragment ? $path . '#m' . $id : $path;
+}
+
 /** Build a bounded sitemap from published records only. */
 function public_sitemap_xml(PDO $pdo): string
 {
@@ -81,7 +91,7 @@ function public_sitemap_xml(PDO $pdo): string
     }
     $xml .= "</url>\n";
     foreach ($rows as $row) {
-        $url = APP_ORIGIN . '/?message=' . (int) $row['id'];
+        $url = APP_ORIGIN . public_message_path((int) $row['id']);
         $xml .= '  <url><loc>' . xml_e($url) . '</loc><lastmod>'
             . utc_iso8601((string) $row['updated_at']) . "</lastmod></url>\n";
     }
@@ -117,7 +127,7 @@ function public_rss_xml(PDO $pdo, int $limit = 20): string
             . "</lastBuildDate>\n";
     }
     foreach ($messages as $message) {
-        $url = APP_ORIGIN . '/?message=' . (int) $message['id'];
+        $url = APP_ORIGIN . public_message_path((int) $message['id']);
         $publishedAt = strtotime((string) $message['created_at'] . ' UTC');
         $xml .= "  <item>\n";
         $xml .= '    <title>' . xml_e((string) ($message['author'] ?: 'Anonymous')) . "</title>\n";

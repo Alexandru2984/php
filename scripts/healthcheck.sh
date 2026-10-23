@@ -132,9 +132,10 @@ fi
 unset html
 
 api_url="${base_url}/api/v1/messages?limit=1"
+api_document="$(curl "${curl_args[@]}" "${api_url}")" || fail api request-failed
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
-if ! curl "${curl_args[@]}" "${api_url}" | php -r '
+if ! php -r '
     $value = json_decode(stream_get_contents(STDIN), true, 8, JSON_THROW_ON_ERROR);
     $pagination = $value["pagination"] ?? null;
     $valid = is_array($value)
@@ -149,7 +150,7 @@ if ! curl "${curl_args[@]}" "${api_url}" | php -r '
         && array_key_exists("next_cursor", $pagination)
         && ($pagination["next_cursor"] === null || is_string($pagination["next_cursor"]));
     exit($valid ? 0 : 1);
-'; then
+' <<<"${api_document}"; then
     fail api schema-invalid
 fi
 
@@ -186,6 +187,25 @@ robots="$(curl "${curl_args[@]}" "${base_url}/robots.txt")" \
 [[ "${robots}" == *'Sitemap: https://php.micutu.com/sitemap.xml'* ]] \
     || fail seo sitemap-discovery-missing
 unset robots
+
+# The PHP snippet is intentionally single-quoted shell input.
+# shellcheck disable=SC2016
+first_message_id="$(php -r '
+    $value = json_decode(stream_get_contents(STDIN), true, 8, JSON_THROW_ON_ERROR);
+    $id = $value["data"][0]["id"] ?? null;
+    if ($id !== null && (!is_int($id) || $id < 1)) { exit(1); }
+    if ($id !== null) { echo $id; }
+' <<<"${api_document}")" || fail api message-id-invalid
+if [[ -n "${first_message_id}" ]]; then
+    message_html="$(curl "${curl_args[@]}" "${base_url}/messages/${first_message_id}")" \
+        || fail seo permalink-unavailable
+    [[ "${message_html}" == *'itemtype="https://schema.org/DiscussionForumPosting"'* ]] \
+        || fail seo posting-schema-missing
+    [[ "${message_html}" == *"/messages/${first_message_id}\""* ]] \
+        || fail seo canonical-permalink-missing
+    unset message_html
+fi
+unset api_document first_message_id
 
 [[ -L "${release_link}" ]] || fail release current-not-symlink
 resolved_release="$(readlink -f -- "${release_link}")" || fail release target-unavailable

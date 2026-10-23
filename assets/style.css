@@ -227,6 +227,24 @@ body {
 }
 .linkbtn:hover { color: var(--text); text-decoration: underline; }
 
+.breadcrumbs {
+    margin: -12px 0 22px;
+    color: var(--text-muted);
+    font-size: .82rem;
+}
+.breadcrumbs ol {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.breadcrumbs li { display: inline-flex; align-items: center; gap: 8px; }
+.breadcrumbs li + li::before { content: "/"; color: var(--text-faint); }
+.breadcrumbs a { color: var(--primary-text); font-weight: 650; text-decoration: none; }
+.breadcrumbs a:hover { text-decoration: underline; }
+
 /* ---- Flash ---- */
 .flash {
     display: flex; align-items: center; gap: 10px;

@@ -203,11 +203,12 @@ credential-compromise tabletop reaches containment within target time.
 - Establish Search Console/Bing ownership, review coverage and rich-result errors,
   and record organic performance without importing search queries into Umami.
 
-**Current evidence:** canonical/robots/Open Graph metadata, `WebSite` and
-`DiscussionForumPosting` microdata, `/sitemap.xml`, `/feed.xml`, a crawlable favicon,
-real 404s and explicit privacy-safe share/copy controls are covered by unit, HTTP,
-health and Chromium checks. Search Console ownership, production rich-result
-validation and crawler-log dashboards remain.
+**Current evidence:** canonical/robots/Open Graph metadata, `WebSite`,
+`DiscussionForumPosting` and visible `BreadcrumbList` microdata, `/sitemap.xml`,
+`/feed.xml`, a crawlable favicon, clean `/messages/ID` permalinks, sessionless legacy
+redirects, real 404s and explicit privacy-safe share/copy controls are covered by
+unit, HTTP, health and Chromium checks. Search Console ownership, production
+rich-result validation and crawler-log dashboards remain.
 
 ## Explicitly deferred until foundations pass
 

@@ -45,6 +45,15 @@ check(
     seo_excerpt(str_repeat('a', 25), 20) === str_repeat('a', 19) . '…',
     'SEO descriptions are bounded without invalid Unicode truncation'
 );
+check(public_message_path(42) === '/messages/42', 'message path is stable and clean');
+check(public_message_path(42, true) === '/messages/42#m42', 'message fragment matches its card');
+$invalidMessagePathRejected = false;
+try {
+    public_message_path(0);
+} catch (InvalidArgumentException) {
+    $invalidMessagePathRejected = true;
+}
+check($invalidMessagePathRejected, 'message path rejects invalid identifiers');
 check(
     utc_iso8601('2026-10-23 08:00:00') === '2026-10-23T08:00:00Z',
     'database timestamps become RFC 3339 UTC values'
@@ -182,7 +191,7 @@ $seoDb->exec(
 );
 $sitemapFixture = public_sitemap_xml($seoDb);
 check(
-    str_contains($sitemapFixture, 'https://php.micutu.com/?message=1')
+    str_contains($sitemapFixture, 'https://php.micutu.com/messages/1')
         && !str_contains($sitemapFixture, 'message=2')
         && !str_contains($sitemapFixture, 'Pending secret'),
     'sitemap contains canonical published permalinks only'
@@ -190,7 +199,7 @@ check(
 $rssFixture = public_rss_xml($seoDb);
 check(
     str_contains($rssFixture, 'Public &amp; indexable')
-        && str_contains($rssFixture, 'https://php.micutu.com/?message=1')
+        && str_contains($rssFixture, 'https://php.micutu.com/messages/1')
         && !str_contains($rssFixture, 'Pending secret'),
     'RSS contains escaped published records only'
 );
