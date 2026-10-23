@@ -129,6 +129,40 @@ check(
     (int) $db->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('admin_audit_events', 'abuse_reports')")->fetchColumn() === 2,
     'moderation audit and abuse-report tables exist'
 );
+check(
+    (int) $db->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'messages_fts'")->fetchColumn() === 1,
+    'FTS5 search index exists'
+);
+check(
+    fts5_query_from_text('  Alice, HELLO! Alice ') === '"alice"* AND "hello"*',
+    'plain search text becomes deduplicated bounded prefix terms'
+);
+check(
+    fts5_query_from_text('" OR author:* NEAR(') === '"or"* AND "author"* AND "near"*',
+    'raw FTS operators and punctuation cannot reach MATCH'
+);
+check(fts5_query_from_text('!!!') === null, 'punctuation-only search has no executable terms');
+check(
+    substr_count((string) fts5_query_from_text('one two three four five six seven eight nine'), '"*') === 8,
+    'search term count is bounded'
+);
+$db->exec("INSERT INTO messages (author, content) VALUES ('Ștefan', 'Salutări din București')");
+check(
+    (int) $db->query(
+        "SELECT COUNT(*) FROM messages_fts
+         WHERE messages_fts MATCH '\"stef\"* AND \"bucuresti\"*'"
+    )->fetchColumn() === 1,
+    'FTS tokenizer supports diacritic-insensitive Unicode prefix search'
+);
+$ftsPlan = $db->prepare(
+    "EXPLAIN QUERY PLAN
+     SELECT m.id FROM messages_fts
+     JOIN messages AS m ON m.id = messages_fts.rowid
+     WHERE messages_fts MATCH :query AND m.status = 'published'"
+);
+$ftsPlan->execute([':query' => '"stef"*']);
+$ftsPlanDetails = implode(' ', $ftsPlan->fetchAll(PDO::FETCH_COLUMN, 3));
+check(str_contains($ftsPlanDetails, 'VIRTUAL TABLE INDEX'), 'search query uses the FTS virtual index');
 
 $subject = hash('sha256', 'test-subject');
 for ($attempt = 1; $attempt <= 4; $attempt++) {
@@ -156,6 +190,35 @@ $db->exec(
      VALUES ('Bob', 'moderate me', 'temporary', '2026-10-21 10:00:00')"
 );
 $moderatedId = (int) $db->lastInsertId();
+check(
+    (int) $db->query(
+        "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH '\"bob\"* AND \"moderate\"*'"
+    )->fetchColumn() === 1,
+    'message insert trigger updates the FTS index'
+);
+$db->exec(
+    "INSERT INTO messages (author, content) VALUES ('Search trigger', 'before update')"
+);
+$searchTriggerId = (int) $db->lastInsertId();
+$db->exec(
+    "UPDATE messages SET content = 'after update' WHERE id = {$searchTriggerId}"
+);
+check(
+    (int) $db->query(
+        "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH '\"before\"*'"
+    )->fetchColumn() === 0
+        && (int) $db->query(
+            "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH '\"after\"*'"
+        )->fetchColumn() === 1,
+    'message update trigger replaces indexed content'
+);
+$db->exec("DELETE FROM messages WHERE id = {$searchTriggerId}");
+check(
+    (int) $db->query(
+        "SELECT COUNT(*) FROM messages_fts WHERE messages_fts MATCH '\"after\"*'"
+    )->fetchColumn() === 0,
+    'message delete trigger removes indexed content'
+);
 check(
     create_abuse_report($db, $moderatedId, 'spam', 200),
     'a public message can be reported without storing a reporter identifier'

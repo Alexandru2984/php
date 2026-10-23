@@ -8,7 +8,8 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 
 ## Features
 - Post messages with an optional name; colored deterministic avatars.
-- Search and pagination.
+- Unicode, diacritic-insensitive SQLite FTS5 search with relevance ranking, prefix
+  indexes, bounded plain-text queries and pagination.
 - Permanent message links and an RSS 2.0 feed (`/?format=rss`).
 - Sessionless `/api/v1/messages` with signed cursor pagination, ETags, conditional
   requests and a published OpenAPI 3.1 contract.

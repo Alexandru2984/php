@@ -186,6 +186,13 @@ grep --quiet 'Hello from the isolated smoke test' <<<"${permalink_html}"
 grep --quiet 'No free-text report or reporter identifier is stored.' <<<"${permalink_html}"
 [[ "$(request_code "${APP_ORIGIN}/?message%5B%5D=${message_id}")" == 400 ]]
 
+search_html="$(curl --silent --show-error --get \
+    --data-urlencode 'q=Alice isolated smoke' "${APP_ORIGIN}/")"
+grep --quiet 'Hello from the isolated smoke test' <<<"${search_html}"
+special_search_code="$(request_code --get \
+    --data-urlencode 'q=" OR author:* NEAR(' "${APP_ORIGIN}/")"
+[[ "${special_search_code}" == 200 ]]
+
 populated_api_headers="${tmp_dir}/api-populated-headers.txt"
 populated_api_body="$(curl --silent --show-error --dump-header "${populated_api_headers}" "${APP_ORIGIN}/api/v1/messages?limit=1")"
 grep --quiet 'Hello from the isolated smoke test' <<<"${populated_api_body}"
@@ -282,6 +289,12 @@ hide_code="$(request_code \
 [[ "${hide_code}" == 303 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status || ':' || moderation_reason || ':' || (ip_hash IS NULL) FROM messages WHERE id = ${message_id};")" == hidden:privacy:1 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT previous_state || ':' || new_state || ':' || reason_code FROM admin_audit_events WHERE event_type = 'message.hide';")" == published:hidden:privacy ]]
+hidden_search_html="$(curl --silent --show-error --get \
+    --data-urlencode 'q=isolated smoke' "${APP_ORIGIN}/")"
+if grep --quiet 'Hello from the isolated smoke test' <<<"${hidden_search_html}"; then
+    echo 'FTS search exposed a moderated message.' >&2
+    exit 1
+fi
 
 admin_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
 admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"

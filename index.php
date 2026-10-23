@@ -334,19 +334,26 @@ if (array_key_exists('message', $_GET)) {
         abort_response(400, 'Invalid message.');
     }
 }
-$whereParts = ["status = :status"];
+$from = 'messages AS m';
+$whereParts = ["m.status = :status"];
 $params = [':status' => 'published'];
 if ($messageId !== null) {
-    $whereParts[] = 'id = :message_id';
+    $whereParts[] = 'm.id = :message_id';
     $params[':message_id'] = $messageId;
 }
 if ($q !== '') {
-    $whereParts[]   = "(author LIKE :q ESCAPE '\\' OR content LIKE :q ESCAPE '\\')";
-    $params[':q']   = '%' . addcslashes($q, '%_\\') . '%';
+    $ftsQuery = fts5_query_from_text($q);
+    if ($ftsQuery === null) {
+        $whereParts[] = '0 = 1';
+    } else {
+        $from = 'messages_fts JOIN messages AS m ON m.id = messages_fts.rowid';
+        $whereParts[] = 'messages_fts MATCH :fts_query';
+        $params[':fts_query'] = $ftsQuery;
+    }
 }
 $where = 'WHERE ' . implode(' AND ', $whereParts);
 
-$countStmt = $pdo->prepare("SELECT COUNT(*) FROM messages $where");
+$countStmt = $pdo->prepare("SELECT COUNT(*) FROM {$from} {$where}");
 $countStmt->execute($params);
 $total = (int) $countStmt->fetchColumn();
 
@@ -358,11 +365,14 @@ if (array_key_exists('page', $_GET) && !is_string($_GET['page'])) {
 $page    = max(1, min($pages, positive_int_input($_GET, 'page')));
 $offset  = ($page - 1) * $perPage;
 
+$order = $q !== '' && isset($params[':fts_query'])
+    ? 'bm25(messages_fts, 3.0, 1.0), m.created_at DESC, m.id DESC'
+    : 'm.created_at DESC, m.id DESC';
 $stmt = $pdo->prepare(
-    "SELECT * FROM messages $where ORDER BY created_at DESC, id DESC LIMIT :lim OFFSET :off"
+    "SELECT m.* FROM {$from} {$where} ORDER BY {$order} LIMIT :lim OFFSET :off"
 );
 foreach ($params as $k => $v) {
-    $stmt->bindValue($k, $v, PDO::PARAM_STR);
+    $stmt->bindValue($k, $v, is_int($v) ? PDO::PARAM_INT : PDO::PARAM_STR);
 }
 $stmt->bindValue(':lim', $perPage, PDO::PARAM_INT);
 $stmt->bindValue(':off', $offset, PDO::PARAM_INT);

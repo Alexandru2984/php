@@ -16,6 +16,7 @@ deletes that copy on every exit. It verifies:
 - SQLite `integrity_check` and `foreign_key_check`;
 - the minimum migration count and representative reads from every application,
   security, moderation and audit table;
+- FTS5 schema/triggers plus a rank-1 external-content index integrity check;
 - an exact mode `0600` backup artifact and a privacy-minimal success marker.
 
 The weekly timer runs after the daily backup window. A failed job pages immediately

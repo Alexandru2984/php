@@ -24,6 +24,8 @@ export ADMIN_PASSWORD_HASH
 export APP_ORIGIN=https://example.test
 export APP_STORAGE_DIR="${storage_dir}"
 php "${repo_dir}/scripts/migrate.php" >/dev/null
+sqlite3 "${storage_dir}/database.sqlite" \
+    "INSERT INTO messages (author, content) VALUES ('Restore fixture', 'indexed recovery content');"
 
 GUESTBOOK_DB_PATH="${storage_dir}/database.sqlite" \
 GUESTBOOK_BACKUP_DIR="${backup_dir}" \
@@ -34,17 +36,30 @@ drill_env=(
     "GUESTBOOK_RESTORE_STATUS_FILE=${status_file}"
     "GUESTBOOK_RESTORE_TMP_DIR=${scratch_dir}"
     'GUESTBOOK_RESTORE_MAX_BACKUP_AGE_SECONDS=108000'
-    'GUESTBOOK_EXPECTED_MIGRATIONS=4'
+    'GUESTBOOK_EXPECTED_MIGRATIONS=5'
 )
 
 output="$(env "${drill_env[@]}" bash "${repo_dir}/scripts/restore-drill.sh")"
 [[ "${output}" == guestbook-restore-drill:\ ok* ]]
 [[ -f "${status_file}" && "$(stat -c '%a' "${status_file}")" == 600 ]]
-grep --quiet '^success_epoch=[0-9]\+ backup_mtime=[0-9]\+ migrations=4$' "${status_file}"
+grep --quiet '^success_epoch=[0-9]\+ backup_mtime=[0-9]\+ migrations=5$' "${status_file}"
 [[ -z "$(find "${scratch_dir}" -mindepth 1 -print -quit)" ]]
 
 backup_file="$(find "${backup_dir}" -maxdepth 1 -type f -name 'database-*.sqlite.gz' -print -quit)"
 cp "${backup_file}" "${tmp_dir}/valid.sqlite.gz"
+gzip -dc "${tmp_dir}/valid.sqlite.gz" >"${tmp_dir}/broken-index.sqlite"
+sqlite3 "${tmp_dir}/broken-index.sqlite" \
+    "INSERT INTO messages_fts(messages_fts, rowid, author, content)
+     SELECT 'delete', id, author, content FROM messages LIMIT 1;"
+gzip -c "${tmp_dir}/broken-index.sqlite" >"${backup_file}"
+chmod 0600 "${backup_file}"
+set +e
+index_output="$(env "${drill_env[@]}" bash "${repo_dir}/scripts/restore-drill.sh" 2>&1)"
+index_exit=$?
+set -e
+[[ "${index_exit}" -ne 0 ]]
+[[ "${index_output}" == *'component=restore reason=search-index-invalid'* ]]
+
 printf 'not-a-gzip-stream\n' >"${backup_file}"
 chmod 0600 "${backup_file}"
 set +e

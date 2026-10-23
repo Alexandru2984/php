@@ -363,6 +363,39 @@ function enum_input(array $source, string $key, array $allowed): ?string
     return $value !== null && in_array($value, $allowed, true) ? $value : null;
 }
 
+/**
+ * Convert a visitor's plain-text search into bounded FTS5 prefix terms.
+ *
+ * Raw FTS syntax is never accepted: operators, quotes, column selectors and
+ * punctuation are discarded before the generated expression reaches MATCH.
+ */
+function fts5_query_from_text(string $input): ?string
+{
+    $input = mb_substr(trim($input), 0, 100);
+    if ($input === '') {
+        return null;
+    }
+
+    $matched = preg_match_all('/[\p{L}\p{N}]+/u', $input, $matches);
+    if ($matched === false || $matched === 0) {
+        return null;
+    }
+
+    $terms = [];
+    foreach ($matches[0] as $rawTerm) {
+        $term = mb_strtolower(mb_substr($rawTerm, 0, 48, 'UTF-8'), 'UTF-8');
+        if ($term === '' || isset($terms[$term])) {
+            continue;
+        }
+        $terms[$term] = '"' . $term . '"*';
+        if (count($terms) === 8) {
+            break;
+        }
+    }
+
+    return $terms === [] ? null : implode(' AND ', array_values($terms));
+}
+
 /** Append a minimal, immutable admin audit event. */
 function admin_audit_event(
     PDO $pdo,

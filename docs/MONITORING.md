@@ -29,7 +29,7 @@ The guestbook probe checks:
 - compressed backup integrity and maximum backup age of 30 hours;
 - a two-provider off-host verification marker no older than 30 hours;
 - a validated restore marker no older than eight days, produced only after an
-  isolated SQLite integrity, foreign-key, migration and schema-contract drill;
+  isolated SQLite integrity, foreign-key, migration, FTS5 and schema-contract drill;
 - exact owner/group/mode for configuration, storage, database, sessions and backups;
 - an atomic `current` symlink whose target is inside `releases` and not writable by
   the runtime identity;
