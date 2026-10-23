@@ -15,8 +15,10 @@ checks before and after migration. Detection, a privacy disclosure, reversible
 moderation, category-only abuse reporting, explainable submission-risk review,
 indexed search and an incident-response runbook are now deployed. R2 holds verified encrypted backups, while Google Drive
 redundancy is quota-degraded. Real-browser Axe, reflow and keyboard checks now gate
-CI; a formal tabletop, data-subject operations, Lighthouse and manual screen-reader
-sign-off remain incomplete.
+CI. An active Telegram bot token was also found in local agent histories; file access
+has been restricted to the owner, but credential rotation remains urgent. A formal
+tabletop, data-subject operations, Lighthouse and manual screen-reader sign-off remain
+incomplete.
 
 ## Deployment verification snapshot
 
@@ -71,6 +73,7 @@ sign-off remain incomplete.
 | S-18 | Low | Indexed search removes routine full scans; a dedicated edge limit remains absent. | FTS5 uses generated prepared prefix terms capped at eight, indexed Unicode tokenization, bounded pagination and a published-only join. Hostile FTS grammar, trigger synchronization, query plans and restored-index integrity are tested. Distributed query floods can still create SQLite/CPU contention. | Add a search-specific Cloudflare rate limit and latency/SQLite-busy alert without logging visitor query text. |
 | S-19 | Medium | Explainable review catches common automation patterns; distributed and novel abuse remains. | Fixed Unicode/link/name/repetition/timing signals plus 24-hour keyed duplicate detection queue at score 40 without auto-deletion. Public surfaces exclude pending content, admin release is reversible and a ten-item pending backlog alerts. Content variation or distributed clients can evade application-local signals, while false positives wait for human review. | Add separate edge limits for post/search/API, measure false-positive and queue latency without message telemetry, then consider accessible risk-triggered Turnstile and expiring allow/block entries. |
 | S-20 | Low | Public discovery is explicit; search-console governance remains manual. | Sitemap, RSS and structured metadata select published records only; search/admin views are noindex, unavailable permalinks return 404, outputs are escaped and production health checks discovery files. Sharing requires a visitor click, exposes only a canonical URL plus generic title and loads no social SDK. Search-engine recrawl/removal, ownership alerts and erasure workflows are not automated. | Verify both major search consoles, monitor coverage/rich-result errors, document cache purge and URL removal, and complete the data-subject workflow. |
+| S-21 | High | The active Telegram bot token exists in local agent-session history. | A fingerprint-only comparison found the current token in three local history files. Two Codex histories were mode `0664`; they and the containing session directories are now owner-only (`0600`/`0700`). The secret remains valid and present in retained history, so permission hardening limits local exposure but does not revoke copies. The token was not added to this repository. | Regenerate the token through BotFather, atomically update the root-owned bot credential, restart and verify the allow-listed chat, then redact or securely remove historical copies under an approved retention plan. Enforce owner-only creation permissions for all future agent transcripts. |
 
 ## Controls verified
 
