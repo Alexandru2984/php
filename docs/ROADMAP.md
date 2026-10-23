@@ -5,7 +5,7 @@ stage must be an atomic commit (or small reviewed commit series), include tests 
 have a rollback path. Production changes happen only after the stage passes its exit
 criteria.
 
-## Status after the 2026-10-21 hardening release
+## Status after the 2026-10-23 hardening release
 
 - **Deployed:** Stages 0–2 core controls: isolated build/test, recoverable backup,
   fail-closed configuration, persistent auth throttling, versioned migrations,

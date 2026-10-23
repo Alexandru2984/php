@@ -1,6 +1,6 @@
 # Security audit
 
-**Date:** 2026-10-21  
+**Date:** 2026-10-23
 **Scope:** application source, Git history, live response behaviour, nginx/PHP-FPM
 configuration, SQLite metadata and backup controls. Message bodies and secret values
 were not inspected.
@@ -12,8 +12,9 @@ through S-05 were remediated on 2026-10-21 using an immutable release, a dedicat
 Unix/FPM identity, fail-closed configuration, persistent throttling and an atomic
 cutover. The production database remained at three messages and passed integrity
 checks before and after migration. Detection, a privacy disclosure, reversible
-moderation, category-only abuse reporting and an incident-response runbook are now
-deployed. Off-host backups, a formal tabletop, data-subject operations and full
+moderation, category-only abuse reporting, indexed search and an incident-response
+runbook are now deployed. R2 holds verified encrypted backups, while Google Drive
+redundancy is quota-degraded. A formal tabletop, data-subject operations and full
 browser/accessibility automation remain incomplete.
 
 ## Deployment verification snapshot
@@ -25,8 +26,9 @@ browser/accessibility automation remain incomplete.
   runtime identity cannot write a release; storage, sessions and local backups are
   mode `0700` directories owned by `php-guestbook`.
 - Versioned migrations ran once and then skipped idempotently. The database reported
-  `integrity=ok`, three published messages and four applied migrations after the
-  moderation cutover. The new report queue was empty at deployment.
+  `integrity=ok`, zero foreign-key violations, three published messages, three indexed
+  FTS rows and five applied migrations after the search cutover. The rank-1 external
+  content/index integrity check passed.
 - Public probes returned `200` for HTML, JSON, RSS, CSS and `security.txt`; sensitive
   paths and path-info returned `404`, unsupported methods returned `405`, and direct
   access through the VPS public address returned `403`.
@@ -34,8 +36,8 @@ browser/accessibility automation remain incomplete.
   sandboxed service identity. Daily jobs and the weekly restore timer are enabled;
   restored disposable backups pass integrity, foreign-key, migration and schema
   checks. The restore unit's systemd exposure score was `0.8 SAFE` at rollout.
-- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 64 unit
-  tests, HTTP integration, moderation lifecycle, health alerting and compressed
+- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 75 unit
+  tests, HTTP/FTS integration, moderation lifecycle, health alerting and compressed
   backup/restore rejection tests.
 
 ## Findings
@@ -59,6 +61,7 @@ browser/accessibility automation remain incomplete.
 | S-15 | Medium | Self-hosted analytics expands the script trust boundary. | The CSP permits the VPS-hosted analytics origin to execute scripts. The tracker is domain-bound, DNT-aware and excludes query/hash, and the public notice exists; origin compromise still becomes same-page script execution. | Pin/review upgrades, document retention/processor basis and consider serving a verified local tracker asset. |
 | S-16 | Low | Application method and canonical-path handling relies on the edge. | Unsupported methods are rejected live by nginx/Cloudflare, but the PHP controller treats every non-POST method as a read; `/index.php/...` also renders successfully. | Enforce `GET`, `HEAD`, and `POST` in PHP, reject path-info, and add canonical redirects/tests. |
 | S-17 | Low | Automated CI exists; real-browser accessibility coverage is absent. | Unit, HTTP, malformed-input, backup/restore, health, operational and secret-leakage checks run locally and in GitHub CI. Axe/Lighthouse and screen-reader flows remain manual. | Add pinned browser/a11y automation and branch-protection enforcement after push. |
+| S-18 | Low | Indexed search removes routine full scans; a dedicated edge limit remains absent. | FTS5 uses generated prepared prefix terms capped at eight, indexed Unicode tokenization, bounded pagination and a published-only join. Hostile FTS grammar, trigger synchronization, query plans and restored-index integrity are tested. Distributed query floods can still create SQLite/CPU contention. | Add a search-specific Cloudflare rate limit and latency/SQLite-busy alert without logging visitor query text. |
 
 ## Controls verified
 
@@ -85,7 +88,7 @@ browser/accessibility automation remain incomplete.
 | Spoofing | Unlimited cookie-rotated guesses obtain the single admin credential. | High | High | 2 |
 | Information disclosure | Shared-pool, backup, analytics or admin compromise exposes messages, identifiers and secrets. | Medium | High | 3 |
 | Repudiation | Host-level compromise could alter both data and local audit history despite application append-only triggers. | Low | Medium | 4 |
-| Denial of service | Distributed report floods, SQLite contention, search scans or disk exhaustion degrade service. | Medium | Medium | 5 |
+| Denial of service | Distributed report/search floods, SQLite contention or disk exhaustion degrade service. | Medium | Medium | 5 |
 
 ## CISO forcing questions
 
@@ -150,7 +153,7 @@ application dependency attack surface.
 
 This review did not access Cloudflare/GitHub dashboards, inspect message bodies,
 attempt password guessing, restore over the live database or perform a destructive
-exploit. Deployment applied the backed-up fourth schema migration after a disposable
-restore of the production snapshot proved integrity and compatibility. Passing this
+exploit. Deployment applied the backed-up fifth schema migration after a disposable
+restore of the production snapshot proved SQLite/FTS integrity and compatibility. Passing this
 review is not a guarantee of security; repeat it after architecture or data-flow
 changes.

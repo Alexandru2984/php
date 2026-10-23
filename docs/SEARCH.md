@@ -68,3 +68,16 @@ so the existing database/off-host encryption and retention controls apply unchan
 Health detects a missing fifth migration within five minutes; the restore drill
 detects FTS schema or content-index divergence weekly. No external package, service or
 subprocessor was added.
+
+## Production verification — 2026-10-23
+
+Migration 005 was first applied to a restored production snapshot, then to the live
+database before the atomic release switch. Both runs reported SQLite integrity `ok`,
+zero foreign-key violations, five applied migrations and three indexed rows for three
+source messages. The rank-1 FTS integrity command passed before and after cutover.
+
+Public probes returned `200` for normal and deliberately hostile FTS-like input,
+without exposing errors; API v1 and OpenAPI remained `200`, protected paths remained
+`404`, and the live query plan reported an FTS5 virtual-table index. A post-migration
+snapshot then passed the isolated restore drill with five migrations and FTS content
+integrity before its ciphertext was verified in R2.
