@@ -165,6 +165,45 @@ test('SEO metadata, canonical permalinks and structured data match visible conte
   expect(runtimeFailures).toEqual([]);
 });
 
+test('message sharing is explicit, canonical and progressively enhanced', async ({ page }) => {
+  const runtimeFailures = observeRuntimeFailures(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'share', {
+      configurable: true,
+      value: async (payload) => { window.__sharedPayload = payload; },
+    });
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => true });
+  });
+  await page.setViewportSize({ width: 320, height: 812 });
+  await page.goto('/');
+
+  expect(await page.evaluate(() => window.__sharedPayload)).toBeUndefined();
+  const shareButton = page.getByRole('button', { name: /Share message #/ }).first();
+  await expect(shareButton).toBeVisible();
+  const box = await shareButton.boundingBox();
+  expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+  await shareButton.click();
+
+  const payload = await page.evaluate(() => window.__sharedPayload);
+  expect(payload.title).toMatch(/^Micuțu Guestbook message #\d+$/);
+  expect(payload.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/\?message=\d+$/);
+  expect(payload.title).not.toContain('Browser check');
+  await expect(page.locator('[data-share-status]')).toHaveText('Message link shared.');
+
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, 'share', { configurable: true, value: undefined });
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: undefined });
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async (url) => { window.__copiedUrl = url; } },
+    });
+  });
+  await shareButton.click();
+  expect(await page.evaluate(() => window.__copiedUrl)).toBe(payload.url);
+  await expect(page.locator('[data-share-status]')).toHaveText('Message link copied.');
+  expect(runtimeFailures).toEqual([]);
+});
+
 test('risk-queued duplicate is private, explained to admin and reversibly publishable', async ({ page }) => {
   const runtimeFailures = observeRuntimeFailures(page);
   await page.setViewportSize({ width: 375, height: 812 });

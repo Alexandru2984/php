@@ -699,6 +699,7 @@ $reportLabels = [
                 <span><?php echo e($flash['message']); ?></span>
             </div>
         <?php endif; ?>
+        <p class="sr-only" aria-live="polite" aria-atomic="true" data-share-status></p>
 
         <form method="POST" class="compose">
             <?php echo csrf_field(); ?>
@@ -769,7 +770,15 @@ $reportLabels = [
                             </div>
                             <p class="msg-body"<?php echo $isPrimaryPosting ? ' itemprop="text"' : ''; ?>><?php echo e($msg['content']); ?></p>
                             <div class="message-actions">
-                                <a class="permalink" href="/?message=<?php echo (int) $msg['id']; ?>#m<?php echo (int) $msg['id']; ?>" aria-label="#<?php echo (int) $msg['id']; ?> · Permalink to message by <?php echo e($name); ?>">#<?php echo (int) $msg['id']; ?> · Permalink</a>
+                                <div class="message-primary-actions">
+                                    <a class="permalink" href="/?message=<?php echo (int) $msg['id']; ?>#m<?php echo (int) $msg['id']; ?>" aria-label="#<?php echo (int) $msg['id']; ?> · Permalink to message by <?php echo e($name); ?>">#<?php echo (int) $msg['id']; ?> · Permalink</a>
+                                    <button class="share-button" type="button" hidden
+                                            data-share-path="/?message=<?php echo (int) $msg['id']; ?>"
+                                            data-share-title="Micuțu Guestbook message #<?php echo (int) $msg['id']; ?>"
+                                            aria-label="Share message #<?php echo (int) $msg['id']; ?>">
+                                        <?php echo icon('share'); ?> Share
+                                    </button>
+                                </div>
                                 <?php if (!$isAdmin): ?>
                                 <details class="report-menu">
                                     <summary>Report</summary>

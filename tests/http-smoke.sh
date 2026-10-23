@@ -243,6 +243,13 @@ grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}/?mess
 grep --fixed-strings --quiet 'itemtype="https://schema.org/DiscussionForumPosting"' <<<"${permalink_html}"
 grep --fixed-strings --quiet 'itemprop="datePublished"' <<<"${permalink_html}"
 grep --fixed-strings --quiet 'itemprop="text"' <<<"${permalink_html}"
+grep --fixed-strings --quiet "data-share-path=\"/?message=${message_id}\"" <<<"${permalink_html}"
+grep --fixed-strings --quiet "data-share-title=\"Micuțu Guestbook message #${message_id}\"" <<<"${permalink_html}"
+grep --fixed-strings --quiet 'class="share-button" type="button" hidden' <<<"${permalink_html}"
+if grep --fixed-strings --quiet 'data-share-title="Micuțu Guestbook message by Alice' <<<"${permalink_html}"; then
+    echo 'Share metadata unexpectedly contains the visitor name.' >&2
+    exit 1
+fi
 [[ "$(request_code "${APP_ORIGIN}/?message%5B%5D=${message_id}")" == 400 ]]
 [[ "$(request_code "${APP_ORIGIN}/?message=999999999")" == 404 ]]
 [[ "$(request_code "${APP_ORIGIN}/?message=${message_id}&q=hello")" == 400 ]]

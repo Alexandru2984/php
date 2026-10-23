@@ -1,5 +1,5 @@
-/* Guestbook client behaviour — theme toggle, character counter,
-   delete confirmation and auto-dismissing flash. No inline handlers (CSP-safe). */
+/* Guestbook client behaviour — theme, counters, sharing, confirmations and
+   auto-dismissing flash. No inline handlers (CSP-safe). */
 (function () {
     'use strict';
 
@@ -46,6 +46,66 @@
         form.addEventListener('submit', function (e) {
             if (!window.confirm(form.getAttribute('data-confirm'))) {
                 e.preventDefault();
+            }
+        });
+    });
+
+    // ---- Privacy-safe sharing -------------------------------------------
+    // Nothing leaves the browser until the visitor invokes a share control.
+    var shareStatus = document.querySelector('[data-share-status]');
+    function announceShare(message) {
+        if (!shareStatus) return;
+        shareStatus.textContent = '';
+        window.requestAnimationFrame(function () { shareStatus.textContent = message; });
+    }
+    function copyShareUrl(url) {
+        function legacyCopy() {
+            return new Promise(function (resolve, reject) {
+                var activeElement = document.activeElement;
+                var helper = document.createElement('textarea');
+                helper.className = 'clipboard-helper';
+                helper.value = url;
+                helper.setAttribute('readonly', '');
+                document.body.appendChild(helper);
+                helper.select();
+                var copied = false;
+                try { copied = document.execCommand('copy'); } catch (e) {}
+                helper.remove();
+                if (activeElement && typeof activeElement.focus === 'function') activeElement.focus();
+                if (copied) resolve();
+                else reject(new Error('Clipboard unavailable'));
+            });
+        }
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+            return navigator.clipboard.writeText(url).catch(legacyCopy);
+        }
+        return legacyCopy();
+    }
+    document.querySelectorAll('[data-share-path]').forEach(function (button) {
+        button.hidden = false;
+        button.addEventListener('click', async function () {
+            if (button.disabled) return;
+            var url = new URL(button.getAttribute('data-share-path'), window.location.origin).href;
+            var title = button.getAttribute('data-share-title') || 'Micuțu Guestbook message';
+            var shareData = { title: title, url: url };
+            button.disabled = true;
+            if (shareStatus) shareStatus.textContent = '';
+            try {
+                var nativeShareAvailable = typeof navigator.share === 'function'
+                    && (typeof navigator.canShare !== 'function' || navigator.canShare(shareData));
+                if (nativeShareAvailable) {
+                    await navigator.share(shareData);
+                    announceShare('Message link shared.');
+                } else {
+                    await copyShareUrl(url);
+                    announceShare('Message link copied.');
+                }
+            } catch (error) {
+                if (!error || error.name !== 'AbortError') {
+                    announceShare('Could not share automatically. Use the permalink to copy the address.');
+                }
+            } finally {
+                button.disabled = false;
             }
         });
     });

@@ -204,9 +204,10 @@ credential-compromise tabletop reaches containment within target time.
   and record organic performance without importing search queries into Umami.
 
 **Current evidence:** canonical/robots/Open Graph metadata, `WebSite` and
-`DiscussionForumPosting` microdata, `/sitemap.xml`, `/feed.xml`, a crawlable favicon
-and real 404s are covered by unit, HTTP, health and Chromium checks. Search Console
-ownership, production rich-result validation and crawler-log dashboards remain.
+`DiscussionForumPosting` microdata, `/sitemap.xml`, `/feed.xml`, a crawlable favicon,
+real 404s and explicit privacy-safe share/copy controls are covered by unit, HTTP,
+health and Chromium checks. Search Console ownership, production rich-result
+validation and crawler-log dashboards remain.
 
 ## Explicitly deferred until foundations pass
 

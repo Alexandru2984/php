@@ -36,6 +36,12 @@ permalink exposes `DiscussionForumPosting`, `Person`, full visible text and an I
 publication time. Microdata avoids weakening the CSP for inline JSON-LD and is emitted
 only when the same published content is visible on the page.
 
+Each visible message also has a progressively enhanced Share control. It sends only
+the canonical permalink and a generic numeric title to the browser's native share
+sheet after an explicit click. Browsers without that API copy the same URL locally;
+without JavaScript, the ordinary permalink remains available. Visitor names and
+message text never enter share metadata, and no social SDK or outbound API is loaded.
+
 This implementation follows current primary guidance from
 [Google Search Central on sitemaps](https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap),
 [canonical URLs](https://developers.google.com/search/docs/crawling-indexing/canonicalization),
@@ -60,6 +66,9 @@ and [discussion-forum structured data](https://developers.google.com/search/docs
 3. **Denial of service — low likelihood/medium impact:** crawler bursts could repeatedly
    generate large XML documents. Mitigation: a 49,999-row upper bound, indexed status
    queries, strong ETags, short shared caching and the existing edge request limit.
+4. **Accidental disclosure — low likelihood/medium impact:** convenience sharing could
+   silently leak visitor text or navigation state. Mitigation: no automatic action,
+   generic titles, canonical paths only, and a local clipboard fallback.
 
 ### Blast radius
 
@@ -75,8 +84,8 @@ evidence does not support inventing a dollar value.
 
 The five-minute health probe validates RSS, sitemap XML and the exact robots sitemap
 directive through Cloudflare. CI separately proves sessionlessness, cache headers,
-XML validity, canonical metadata, moderated-content removal and browser-visible
-microdata. On leakage, hide the record, purge the affected Cloudflare cache object,
+XML validity, canonical metadata, moderated-content removal, browser-visible
+microdata and explicit share invocation. On leakage, hide the record, purge the affected Cloudflare cache object,
 remove the URL through the relevant search console when necessary, preserve logs and
 follow the [incident-response runbook](INCIDENT_RESPONSE.md). A search-console review
 and crawler-leak tabletop remain manual follow-ups.
