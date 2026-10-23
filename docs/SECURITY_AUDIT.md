@@ -14,8 +14,9 @@ cutover. The production database remained at three messages and passed integrity
 checks before and after migration. Detection, a privacy disclosure, reversible
 moderation, category-only abuse reporting, indexed search and an incident-response
 runbook are now deployed. R2 holds verified encrypted backups, while Google Drive
-redundancy is quota-degraded. A formal tabletop, data-subject operations and full
-browser/accessibility automation remain incomplete.
+redundancy is quota-degraded. Real-browser Axe, reflow and keyboard checks now gate
+CI; a formal tabletop, data-subject operations, Lighthouse and manual screen-reader
+sign-off remain incomplete.
 
 ## Deployment verification snapshot
 
@@ -38,7 +39,9 @@ browser/accessibility automation remain incomplete.
   checks. The restore unit's systemd exposure score was `0.8 SAFE` at rollout.
 - The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 75 unit
   tests, HTTP/FTS integration, moderation lifecycle, health alerting and compressed
-  backup/restore rejection tests.
+  backup/restore rejection tests. A separate Chromium job checks five viewport widths,
+  primary 44px touch targets, keyboard focus, dynamic post/search flows, light/dark
+  WCAG A/AA Axe rules and JavaScript/network errors against disposable state.
 
 ## Findings
 
@@ -60,7 +63,7 @@ browser/accessibility automation remain incomplete.
 | S-14 | Low | API v1 is stateless and cache-consistent; the legacy JSON shape remains temporarily. | `/api/v1/messages` creates no session/cookie, exposes published columns only, uses signed indexed cursors, strong ETags and explicit public cache semantics. The old query-format feed is private/no-store and marked deprecated. | Migrate remaining consumers, measure usage, then remove the legacy JSON format in a separately announced release. |
 | S-15 | Medium | Self-hosted analytics expands the script trust boundary. | The CSP permits the VPS-hosted analytics origin to execute scripts. The tracker is domain-bound, DNT-aware and excludes query/hash, and the public notice exists; origin compromise still becomes same-page script execution. | Pin/review upgrades, document retention/processor basis and consider serving a verified local tracker asset. |
 | S-16 | Low | Application method and canonical-path handling relies on the edge. | Unsupported methods are rejected live by nginx/Cloudflare, but the PHP controller treats every non-POST method as a read; `/index.php/...` also renders successfully. | Enforce `GET`, `HEAD`, and `POST` in PHP, reject path-info, and add canonical redirects/tests. |
-| S-17 | Low | Automated CI exists; real-browser accessibility coverage is absent. | Unit, HTTP, malformed-input, backup/restore, health, operational and secret-leakage checks run locally and in GitHub CI. Axe/Lighthouse and screen-reader flows remain manual. | Add pinned browser/a11y automation and branch-protection enforcement after push. |
+| S-17 | Low | Real-browser CI is implemented; human accessibility and repository enforcement remain. | Exact-version Playwright/Axe checks run against isolated state at 320–1440px, enforce WCAG A/AA rules in both themes, keyboard focus, touch targets and zero overflow. Automated review caught and fixed contrast and accessible-name defects. Lighthouse, 200% zoom, screen-reader sign-off and confirmation that the job is required by branch protection remain open. | Complete and record the manual matrix, add Lighthouse budgets, then require both CI jobs in GitHub branch protection after push. |
 | S-18 | Low | Indexed search removes routine full scans; a dedicated edge limit remains absent. | FTS5 uses generated prepared prefix terms capped at eight, indexed Unicode tokenization, bounded pagination and a published-only join. Hostile FTS grammar, trigger synchronization, query plans and restored-index integrity are tested. Distributed query floods can still create SQLite/CPU contention. | Add a search-specific Cloudflare rate limit and latency/SQLite-busy alert without logging visitor query text. |
 
 ## Controls verified
@@ -146,8 +149,10 @@ assessment remains the controller's responsibility.
 - GitHub: source hosting; branch protection, MFA, deploy keys and secret-scanning
   settings were not visible from this host and remain to be verified.
 
-No Composer, npm or CDN runtime packages are present, which materially reduces the
-application dependency attack surface.
+No Composer, npm or CDN **runtime** packages are present, which materially reduces the
+application dependency attack surface. Browser-test packages are development-only,
+exactly versioned with integrity hashes, installed with lifecycle scripts disabled,
+audited in a secretless read-only CI job and covered by dependency review/Dependabot.
 
 ## Audit limitations
 

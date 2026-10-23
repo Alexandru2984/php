@@ -1,7 +1,24 @@
 version: 2
 updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "05:00"
+      timezone: Europe/Bucharest
+    open-pull-requests-limit: 5
+    groups:
+      browser-testing:
+        patterns:
+          - "@axe-core/*"
+          - "@playwright/*"
+
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 3
+      day: monday
+      time: "05:30"
+      timezone: Europe/Bucharest
+    open-pull-requests-limit: 5

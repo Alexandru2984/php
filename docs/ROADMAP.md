@@ -15,11 +15,12 @@ criteria.
   five moderation states, reversible actions, controlled reasons, privacy/about UI,
   identifier minimisation and append-only admin audit; Stage 5 now has RSS/permalinks,
   a sessionless versioned read API, signed cursor pagination, strong ETags and
-  OpenAPI plus bounded SQLite FTS5 search; responsive/accessibility foundations from Stage 6; pinned CI,
+  OpenAPI plus bounded SQLite FTS5 search; responsive/accessibility foundations and
+  real-Chromium Axe/reflow/keyboard checks from Stage 6; pinned CI,
   `security.txt` and hardened systemd jobs from Stage 8.
 - **Next priority:** restore Google Drive capacity or replace the degraded second
   off-host provider, add a second offline recovery recipient plus a human off-host drill,
-  an incident-response tabletop, browser accessibility checks,
+  an incident-response tabletop, manual screen-reader/200% zoom checks,
   retention/export/erasure operations, dedicated API/search edge limits and
   risk-scored submission heuristics that queue rather than delete content.
 - **Still deferred:** Stage 7 community features and the explicitly deferred features
@@ -137,6 +138,12 @@ used for routine search; maintenance commands are idempotent.
 
 **Exit:** automated Axe/Lighthouse checks plus manual keyboard and screen-reader
 smoke tests pass; no horizontal overflow at the supported widths.
+
+**Current evidence:** Playwright exercises 320, 375, 768, 1024 and 1440 CSS-pixel
+viewports without horizontal overflow, checks 44px primary touch targets, keyboard
+skip/focus navigation, theme persistence, post/search behaviour, reduced motion and
+WCAG 2.0/2.1/2.2 A/AA Axe rules in light and dark modes. Lighthouse, 200% browser
+zoom and a named screen-reader/manual pass remain before the full exit criterion.
 
 ## Stage 7 — Community features (P2)
 

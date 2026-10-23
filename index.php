@@ -535,7 +535,7 @@ $reportLabels = [
 </head>
 <body>
     <a class="skip-link" href="#main-content">Skip to content</a>
-    <main class="app<?php echo $isAdmin ? ' app-admin' : ''; ?>" id="main-content">
+    <main class="app<?php echo $isAdmin ? ' app-admin' : ''; ?>" id="main-content" tabindex="-1">
         <header class="header">
             <h1 class="brand">
                 <span class="logo"><?php echo icon('book'); ?></span>
@@ -627,7 +627,7 @@ $reportLabels = [
                             </div>
                             <p class="msg-body"><?php echo e($msg['content']); ?></p>
                             <div class="message-actions">
-                                <a class="permalink" href="/?message=<?php echo (int) $msg['id']; ?>#m<?php echo (int) $msg['id']; ?>" aria-label="Permanent link to message by <?php echo e($name); ?>">#<?php echo (int) $msg['id']; ?> · Permalink</a>
+                                <a class="permalink" href="/?message=<?php echo (int) $msg['id']; ?>#m<?php echo (int) $msg['id']; ?>" aria-label="#<?php echo (int) $msg['id']; ?> · Permalink to message by <?php echo e($name); ?>">#<?php echo (int) $msg['id']; ?> · Permalink</a>
                                 <?php if (!$isAdmin): ?>
                                 <details class="report-menu">
                                     <summary>Report</summary>

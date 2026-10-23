@@ -21,7 +21,7 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 - Privacy minimisation that detaches abuse-prevention identifiers after 24 hours;
   analytics is opt-in through configuration.
 - Mobile-first responsive layout with keyboard, reduced-motion, forced-colors and
-  screen-reader affordances.
+  screen-reader affordances, continuously checked in real Chromium with Axe.
 
 ## Security
 - SQLite database lives **outside** the web root (`../php_micutu_app_storage`).
@@ -56,7 +56,7 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 
 ## Verification
 
-Run the dependency-free checks from the project root:
+Run the dependency-free application and operations checks from the project root:
 
 ```bash
 php tests/run.php
@@ -65,8 +65,21 @@ bash tests/backup-smoke.sh
 shellcheck scripts/*.sh tests/*.sh
 ```
 
-`bash scripts/ci.sh` runs the complete local suite. The same command runs in GitHub
-Actions with read-only token permissions and a commit-pinned checkout action.
+`bash scripts/ci.sh` runs the complete dependency-free suite. The same command runs in
+GitHub Actions with read-only token permissions and a commit-pinned checkout action.
+
+Browser checks use development-only, exact-version dependencies and a disposable
+database/server. They never load the production `.env` or storage:
+
+```bash
+npm ci --ignore-scripts --no-audit --no-fund
+./node_modules/.bin/playwright install chromium
+npm run test:browser
+```
+
+GitHub CI installs the matching Chromium runtime, audits the locked npm graph and runs
+the browser suite separately. See [the accessibility verification notes](docs/ACCESSIBILITY.md)
+for automated coverage and the remaining manual checks.
 
 Reviewed production templates and the isolation rollout are in [`ops/`](ops/README.md).
 
