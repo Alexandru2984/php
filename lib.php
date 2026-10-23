@@ -24,6 +24,112 @@ function xml_e(?string $s): string
     return htmlspecialchars($s ?? '', ENT_QUOTES | ENT_SUBSTITUTE | ENT_XML1, 'UTF-8');
 }
 
+/** Collapse plain text into a bounded search/social description. */
+function seo_excerpt(string $text, int $maximum = 160): string
+{
+    if ($maximum < 20 || $maximum > 500) {
+        throw new InvalidArgumentException('Invalid excerpt length');
+    }
+    $collapsed = preg_replace('/\s+/u', ' ', trim($text));
+    if (!is_string($collapsed)) {
+        return '';
+    }
+    if (mb_strlen($collapsed, 'UTF-8') <= $maximum) {
+        return $collapsed;
+    }
+    return rtrim(mb_substr($collapsed, 0, $maximum - 1, 'UTF-8')) . '…';
+}
+
+/** Convert a trusted SQLite UTC timestamp into an RFC 3339 timestamp. */
+function utc_iso8601(string $datetime): string
+{
+    $parsed = DateTimeImmutable::createFromFormat(
+        '!Y-m-d H:i:s',
+        $datetime,
+        new DateTimeZone('UTC')
+    );
+    if (!$parsed instanceof DateTimeImmutable) {
+        throw new InvalidArgumentException('Invalid database timestamp');
+    }
+    return $parsed->format('Y-m-d\TH:i:s\Z');
+}
+
+/** Build a bounded sitemap from published records only. */
+function public_sitemap_xml(PDO $pdo): string
+{
+    $rows = $pdo->query(
+        "SELECT id, COALESCE(moderated_at, created_at) AS updated_at
+         FROM messages
+         WHERE status = 'published'
+         ORDER BY id ASC
+         LIMIT 49999"
+    )->fetchAll();
+
+    $latest = null;
+    foreach ($rows as $row) {
+        $updatedAt = (string) $row['updated_at'];
+        if ($latest === null || strcmp($updatedAt, $latest) > 0) {
+            $latest = $updatedAt;
+        }
+    }
+
+    $xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    $xml .= "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n";
+    $xml .= "  <url><loc>" . xml_e(APP_ORIGIN . '/') . "</loc>";
+    if ($latest !== null) {
+        $xml .= '<lastmod>' . utc_iso8601($latest) . '</lastmod>';
+    }
+    $xml .= "</url>\n";
+    foreach ($rows as $row) {
+        $url = APP_ORIGIN . '/?message=' . (int) $row['id'];
+        $xml .= '  <url><loc>' . xml_e($url) . '</loc><lastmod>'
+            . utc_iso8601((string) $row['updated_at']) . "</lastmod></url>\n";
+    }
+    return $xml . "</urlset>\n";
+}
+
+/** Build a deterministic, sessionless RSS feed from published records only. */
+function public_rss_xml(PDO $pdo, int $limit = 20): string
+{
+    if ($limit < 1 || $limit > 50) {
+        throw new InvalidArgumentException('Invalid feed limit');
+    }
+    $stmt = $pdo->prepare(
+        "SELECT id, author, content, created_at
+         FROM messages
+         WHERE status = 'published'
+         ORDER BY created_at DESC, id DESC
+         LIMIT :limit"
+    );
+    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    $stmt->execute();
+    $messages = $stmt->fetchAll();
+
+    $xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
+    $xml .= "<rss version=\"2.0\">\n<channel>\n";
+    $xml .= "  <title>Micuțu Guestbook</title>\n";
+    $xml .= '  <link>' . xml_e(APP_ORIGIN . '/') . "</link>\n";
+    $xml .= "  <description>Recent public guestbook messages</description>\n";
+    $xml .= "  <language>en</language>\n";
+    if ($messages !== []) {
+        $builtAt = strtotime((string) $messages[0]['created_at'] . ' UTC');
+        $xml .= '  <lastBuildDate>' . gmdate(DATE_RSS, $builtAt === false ? 0 : $builtAt)
+            . "</lastBuildDate>\n";
+    }
+    foreach ($messages as $message) {
+        $url = APP_ORIGIN . '/?message=' . (int) $message['id'];
+        $publishedAt = strtotime((string) $message['created_at'] . ' UTC');
+        $xml .= "  <item>\n";
+        $xml .= '    <title>' . xml_e((string) ($message['author'] ?: 'Anonymous')) . "</title>\n";
+        $xml .= '    <link>' . xml_e($url) . "</link>\n";
+        $xml .= '    <guid isPermaLink="true">' . xml_e($url) . "</guid>\n";
+        $xml .= '    <description>' . xml_e((string) $message['content']) . "</description>\n";
+        $xml .= '    <pubDate>' . gmdate(DATE_RSS, $publishedAt === false ? 0 : $publishedAt)
+            . "</pubDate>\n  </item>\n";
+    }
+    return $xml . "</channel>\n</rss>\n";
+}
+
 /** Return the current CSRF token, creating one for the session if needed. */
 function csrf_token(): string
 {

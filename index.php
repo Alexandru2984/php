@@ -7,22 +7,33 @@ $requestUri = (string) ($_SERVER['REQUEST_URI'] ?? '/');
 $requestPath = parse_url($requestUri, PHP_URL_PATH);
 $requestPath = is_string($requestPath) ? $requestPath : '';
 $isApiV1 = $requestPath === '/api/v1/messages';
+$isSitemap = $requestPath === '/sitemap.xml';
+$isFeed = $requestPath === '/feed.xml';
 $isInteractiveUi = in_array($requestPath, ['/', '/index.php'], true);
+$rawFormatHint = $_GET['format'] ?? null;
+$isStatelessLegacyRead = $isInteractiveUi
+    && in_array($method, ['GET', 'HEAD'], true)
+    && is_string($rawFormatHint)
+    && in_array($rawFormatHint, ['json', 'rss'], true);
 
 define('GUESTBOOK_APP', true);
-define('GUESTBOOK_STATELESS_REQUEST', !$isInteractiveUi);
+define(
+    'GUESTBOOK_STATELESS_REQUEST',
+    !$isInteractiveUi || $isStatelessLegacyRead
+);
 require __DIR__ . '/config.php';
 require __DIR__ . '/lib.php';
 require __DIR__ . '/api.php';
 
 if (!in_array($method, ['GET', 'HEAD', 'POST'], true)) {
-    header('Allow: ' . ($isApiV1 ? 'GET, HEAD' : 'GET, HEAD, POST'));
+    $readOnlyRoute = $isApiV1 || $isSitemap || $isFeed;
+    header('Allow: ' . ($readOnlyRoute ? 'GET, HEAD' : 'GET, HEAD, POST'));
     if ($isApiV1) {
         api_error_response(405, 'method_not_allowed', 'Only GET and HEAD are supported.');
     }
     abort_response(405, 'Method not allowed.');
 }
-if (!$isApiV1 && !empty($_SERVER['PATH_INFO'])) {
+if (!$isApiV1 && !$isSitemap && !$isFeed && !empty($_SERVER['PATH_INFO'])) {
     abort_response(404, 'Not found.');
 }
 
@@ -92,6 +103,56 @@ if ($isApiV1) {
         echo $json;
     }
     exit;
+}
+
+/** Send a deterministic public document with conditional-GET support. */
+function public_document_response(
+    string $body,
+    string $contentType,
+    string $method,
+    bool $noindex = false
+): never
+{
+    $etag = '"' . hash('sha256', $body) . '"';
+    header('Content-Type: ' . $contentType);
+    header('Cache-Control: public, max-age=30, stale-while-revalidate=60');
+    header('ETag: ' . $etag);
+    header('Vary: Accept-Encoding');
+    if ($noindex) {
+        header('X-Robots-Tag: noindex');
+    }
+    $ifNoneMatch = $_SERVER['HTTP_IF_NONE_MATCH'] ?? '';
+    if (is_string($ifNoneMatch) && api_etag_matches($ifNoneMatch, $etag)) {
+        http_response_code(304);
+        exit;
+    }
+    if ($method !== 'HEAD') {
+        echo $body;
+    }
+    exit;
+}
+
+if ($isSitemap || $isFeed) {
+    if (!in_array($method, ['GET', 'HEAD'], true)) {
+        header('Allow: GET, HEAD');
+        abort_response(405, 'Method not allowed.');
+    }
+    if ($_GET !== []) {
+        abort_response(400, 'Unsupported query parameter.');
+    }
+    if ($isSitemap) {
+        public_document_response(
+            public_sitemap_xml($pdo),
+            'application/xml; charset=utf-8',
+            $method
+        );
+    }
+    public_document_response(
+        public_rss_xml($pdo),
+        'application/rss+xml; charset=utf-8',
+        $method,
+        true
+    );
 }
 
 if (!$isInteractiveUi) {
@@ -349,6 +410,9 @@ if (array_key_exists('message', $_GET)) {
     if ($messageId === null) {
         abort_response(400, 'Invalid message.');
     }
+    if ($q !== '' || array_key_exists('page', $_GET) || array_key_exists('format', $_GET)) {
+        abort_response(400, 'Unsupported permalink parameters.');
+    }
 }
 $from = 'messages AS m';
 $whereParts = ["m.status = :status"];
@@ -372,13 +436,19 @@ $where = 'WHERE ' . implode(' AND ', $whereParts);
 $countStmt = $pdo->prepare("SELECT COUNT(*) FROM {$from} {$where}");
 $countStmt->execute($params);
 $total = (int) $countStmt->fetchColumn();
+if ($messageId !== null && $total === 0) {
+    abort_response(404, 'Message not found.');
+}
 
 $perPage = PER_PAGE;
 $pages   = max(1, (int) ceil($total / $perPage));
 if (array_key_exists('page', $_GET) && !is_string($_GET['page'])) {
     abort_response(400, 'Invalid page.');
 }
-$page    = max(1, min($pages, positive_int_input($_GET, 'page')));
+$page = positive_int_input($_GET, 'page');
+if ($page > $pages) {
+    abort_response(404, 'Page not found.');
+}
 $offset  = ($page - 1) * $perPage;
 
 $order = $q !== '' && isset($params[':fts_query'])
@@ -474,34 +544,48 @@ if ($format === 'json') {
     exit;
 }
 if ($format === 'rss') {
-    header('Content-Type: application/rss+xml; charset=utf-8');
-    header('Cache-Control: private, no-store');
-    echo "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
-    ?>
-<rss version="2.0">
-<channel>
-    <title>Guestbook</title>
-    <link><?php echo xml_e(APP_ORIGIN . '/'); ?></link>
-    <description>Recent public guestbook messages</description>
-    <language>en</language>
-    <lastBuildDate><?php echo gmdate(DATE_RSS); ?></lastBuildDate>
-    <?php foreach ($messages as $message): ?>
-    <item>
-        <title><?php echo xml_e((string) ($message['author'] ?: 'Anonymous')); ?></title>
-        <link><?php echo xml_e(APP_ORIGIN . '/?message=' . (int) $message['id'] . '#m' . (int) $message['id']); ?></link>
-        <guid isPermaLink="true"><?php echo xml_e(APP_ORIGIN . '/?message=' . (int) $message['id'] . '#m' . (int) $message['id']); ?></guid>
-        <description><?php echo xml_e((string) $message['content']); ?></description>
-        <pubDate><?php echo gmdate(DATE_RSS, strtotime((string) $message['created_at'] . ' UTC') ?: 0); ?></pubDate>
-    </item>
-    <?php endforeach; ?>
-</channel>
-</rss>
-    <?php
+    header('Location: /feed.xml', true, 301);
     exit;
 }
 if ($format !== null && $format !== '') {
     abort_response(400, 'Unsupported format.');
 }
+
+$canonicalParams = [];
+if ($messageId !== null) {
+    $canonicalParams['message'] = $messageId;
+} elseif ($q !== '') {
+    $canonicalParams['q'] = $q;
+    if ($page > 1) {
+        $canonicalParams['page'] = $page;
+    }
+} elseif ($page > 1) {
+    $canonicalParams['page'] = $page;
+}
+$canonicalPath = '/' . ($canonicalParams !== []
+    ? '?' . http_build_query($canonicalParams)
+    : '');
+$canonicalUrl = APP_ORIGIN . $canonicalPath;
+$primaryMessage = $messageId !== null && isset($messages[0]) ? $messages[0] : null;
+$siteName = 'Micuțu Guestbook';
+if (is_array($primaryMessage)) {
+    $primaryAuthor = (string) ($primaryMessage['author'] ?: 'Anonymous');
+    $pageTitle = 'Message by ' . seo_excerpt($primaryAuthor, 60) . ' · ' . $siteName;
+    $pageDescription = seo_excerpt((string) $primaryMessage['content']);
+} elseif ($q !== '') {
+    $pageTitle = 'Search results · ' . $siteName;
+    $pageDescription = 'Search results from the public Micuțu guestbook.';
+} elseif ($page > 1) {
+    $pageTitle = 'Guestbook archive · Page ' . $page . ' · Micuțu';
+    $pageDescription = 'Older public messages in the Micuțu guestbook.';
+} else {
+    $pageTitle = 'Micuțu Guestbook · Leave a public message';
+    $pageDescription = 'A small public guestbook for messages, thoughts and hellos.';
+}
+$robotsPolicy = $isAdmin || $q !== ''
+    ? 'noindex, follow'
+    : 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1';
+$isCanonicalHome = $messageId === null && $q === '' && $page === 1;
 
 /** Build a URL for the feed preserving the active search query. */
 function feed_url(int $page, string $q): string
@@ -554,11 +638,21 @@ $reportLabels = [
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#4f46e5" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#0a0e18" media="(prefers-color-scheme: dark)">
-    <meta name="description" content="A little guestbook — leave a message.">
-    <title><?php echo $messageId !== null ? 'Message #' . $messageId . ' · ' : ''; ?>Guestbook</title>
-    <link rel="canonical" href="<?php echo e(APP_ORIGIN . ($messageId !== null ? '/?message=' . $messageId : '/')); ?>">
-    <link rel="alternate" type="application/rss+xml" title="Guestbook RSS" href="/?format=rss">
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>">
+    <meta name="description" content="<?php echo e($pageDescription); ?>">
+    <meta name="robots" content="<?php echo e($robotsPolicy); ?>">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="<?php echo e($siteName); ?>">
+    <meta property="og:locale" content="en_US">
+    <meta property="og:title" content="<?php echo e($pageTitle); ?>">
+    <meta property="og:description" content="<?php echo e($pageDescription); ?>">
+    <meta property="og:url" content="<?php echo e($canonicalUrl); ?>">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="<?php echo e($pageTitle); ?>">
+    <meta name="twitter:description" content="<?php echo e($pageDescription); ?>">
+    <title><?php echo e($pageTitle); ?></title>
+    <link rel="canonical" href="<?php echo e($canonicalUrl); ?>">
+    <link rel="alternate" type="application/rss+xml" title="Micuțu Guestbook RSS" href="/feed.xml">
+    <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" sizes="any">
     <link rel="stylesheet" href="<?php echo e(asset('assets/style.css')); ?>">
     <script src="<?php echo e(asset('assets/theme-init.js')); ?>"></script>
     <script defer src="<?php echo e(asset('assets/app.js')); ?>"></script>
@@ -575,10 +669,13 @@ $reportLabels = [
 <body>
     <a class="skip-link" href="#main-content">Skip to content</a>
     <main class="app<?php echo $isAdmin ? ' app-admin' : ''; ?>" id="main-content" tabindex="-1">
-        <header class="header">
+        <header class="header"<?php echo $isCanonicalHome ? ' itemscope itemtype="https://schema.org/WebSite"' : ''; ?>>
+            <?php if ($isCanonicalHome): ?>
+            <link itemprop="url" href="<?php echo e(APP_ORIGIN . '/'); ?>">
+            <?php endif; ?>
             <h1 class="brand">
                 <span class="logo"><?php echo icon('book'); ?></span>
-                <span class="brand-text">Guestbook</span>
+                <span class="brand-text"<?php echo $isCanonicalHome ? ' itemprop="name"' : ''; ?>><?php echo e($siteName); ?></span>
             </h1>
             <div class="header-actions">
                 <span class="badge"><?php echo $total; ?> message<?php echo $total === 1 ? '' : 's'; ?></span>
@@ -652,19 +749,25 @@ $reportLabels = [
                 <div class="feed">
                     <?php foreach ($messages as $msg): ?>
                         <?php $name = $msg['author'] ?? 'Anonymous'; ?>
-                        <article class="msg" id="m<?php echo (int) $msg['id']; ?>">
+                        <?php $isPrimaryPosting = $messageId !== null && (int) $msg['id'] === $messageId; ?>
+                        <article class="msg" id="m<?php echo (int) $msg['id']; ?>"<?php echo $isPrimaryPosting ? ' itemscope itemtype="https://schema.org/DiscussionForumPosting"' : ''; ?>>
+                            <?php if ($isPrimaryPosting): ?>
+                            <meta itemprop="mainEntityOfPage" content="<?php echo e($canonicalUrl); ?>">
+                            <link itemprop="url" href="<?php echo e($canonicalUrl); ?>">
+                            <?php endif; ?>
                             <div class="msg-head">
                                 <div class="avatar av-<?php echo avatar_index($name); ?>"><?php echo e(avatar_initial($name)); ?></div>
-                                <div class="msg-meta">
-                                    <p class="msg-author"><?php echo e($name); ?></p>
+                                <div class="msg-meta"<?php echo $isPrimaryPosting ? ' itemprop="author" itemscope itemtype="https://schema.org/Person"' : ''; ?>>
+                                    <p class="msg-author"<?php echo $isPrimaryPosting ? ' itemprop="name"' : ''; ?>><?php echo e($name); ?></p>
                                     <p class="msg-time">
                                         <?php echo icon('clock'); ?>
                                         <time datetime="<?php echo e(str_replace(' ', 'T', (string) $msg['created_at']) . 'Z'); ?>"
+                                              <?php echo $isPrimaryPosting ? 'itemprop="datePublished" ' : ''; ?>
                                               title="<?php echo e($msg['created_at']); ?> UTC"><?php echo e(time_ago($msg['created_at'])); ?></time>
                                     </p>
                                 </div>
                             </div>
-                            <p class="msg-body"><?php echo e($msg['content']); ?></p>
+                            <p class="msg-body"<?php echo $isPrimaryPosting ? ' itemprop="text"' : ''; ?>><?php echo e($msg['content']); ?></p>
                             <div class="message-actions">
                                 <a class="permalink" href="/?message=<?php echo (int) $msg['id']; ?>#m<?php echo (int) $msg['id']; ?>" aria-label="#<?php echo (int) $msg['id']; ?> · Permalink to message by <?php echo e($name); ?>">#<?php echo (int) $msg['id']; ?> · Permalink</a>
                                 <?php if (!$isAdmin): ?>

@@ -10,7 +10,9 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 - Post messages with an optional name; colored deterministic avatars.
 - Unicode, diacritic-insensitive SQLite FTS5 search with relevance ranking, prefix
   indexes, bounded plain-text queries and pagination.
-- Permanent message links and an RSS 2.0 feed (`/?format=rss`).
+- Permanent message links and a cache-aware RSS 2.0 feed (`/feed.xml`).
+- Technical SEO with stable canonical URLs, versioned robots policy, a sessionless
+  XML sitemap/RSS feed, social metadata and forum-posting structured data.
 - Sessionless `/api/v1/messages` with signed cursor pagination, ETags, conditional
   requests and a published OpenAPI 3.1 contract.
 - Light/dark theme with a persisted toggle.

@@ -9,6 +9,7 @@ health_timer='ops/systemd/php-guestbook-health.timer'
 restore_service='ops/systemd/php-guestbook-restore-drill.service'
 restore_timer='ops/systemd/php-guestbook-restore-drill.timer'
 offsite_service='ops/systemd/php-guestbook-offsite.service'
+nginx_config='ops/nginx/php.micutu.com.conf'
 
 grep --quiet '^User=php-guestbook$' "${health_service}"
 grep --quiet '^NoNewPrivileges=yes$' "${health_service}"
@@ -35,6 +36,11 @@ grep --quiet '^IPAddressDeny=169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.168.0
     "${offsite_service}"
 grep --quiet '^OnFailure=swift-vapor-alert@%n.service$' "${offsite_service}"
 grep --quiet '^OnSuccess=php-guestbook-offsite.service$' ops/systemd/php-guestbook-backup.service
+grep --quiet 'try_files /robots.txt =404;' "${nginx_config}"
+if grep --quiet '/srv/canary/shared/robots.txt' "${nginx_config}"; then
+    echo 'Nginx still points at the unversioned shared robots file.' >&2
+    exit 1
+fi
 
 if rg --ignore-case --glob '!tests/ops-smoke.sh' \
     'BOT_TOKEN|CHAT_ID|api\.telegram\.org|[0-9]{8,12}:[A-Za-z0-9_-]{30,}' \

@@ -41,7 +41,7 @@ test('supported viewport widths reflow without horizontal overflow', async ({ pa
     expect(dimensions.documentWidth, `${width}px document overflow`).toBeLessThanOrEqual(dimensions.viewportWidth);
     expect(dimensions.bodyWidth, `${width}px body overflow`).toBeLessThanOrEqual(dimensions.viewportWidth);
 
-    await expect(page.getByRole('heading', { level: 1, name: 'Guestbook' })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Micuțu Guestbook' })).toBeVisible();
     await expect(page.getByRole('button', { name: /theme/i })).toBeVisible();
     await expect(page.getByRole('textbox', { name: 'Message' })).toBeVisible();
     await expect(page.getByRole('searchbox', { name: 'Search messages' })).toBeVisible();
@@ -140,6 +140,28 @@ test('light and dark interfaces have no automatically detectable WCAG A/AA viola
     expect(transitionDuration).toBeLessThanOrEqual(0.00001);
   }
 
+  expect(runtimeFailures).toEqual([]);
+});
+
+test('SEO metadata, canonical permalinks and structured data match visible content', async ({ page }) => {
+  const runtimeFailures = observeRuntimeFailures(page);
+  await page.goto('/');
+
+  await expect(page).toHaveTitle('Micuțu Guestbook · Leave a public message');
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /^http:\/\/127\.0\.0\.1:\d+\/$/);
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /^index, follow/);
+  await expect(page.locator('[itemtype="https://schema.org/WebSite"]')).toContainText('Micuțu Guestbook');
+
+  const permalink = await page.locator('.permalink').first().getAttribute('href');
+  expect(permalink).toMatch(/^\/\?message=\d+#m\d+$/);
+  await page.goto(permalink);
+  await expect(page).toHaveTitle(/Message by Browser check · Micuțu Guestbook/);
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/\?message=\d+$/);
+  await expect(page.locator('[itemtype="https://schema.org/DiscussionForumPosting"] [itemprop="text"]'))
+    .toHaveText('Responsive accessibility flow');
+
+  await page.goto('/?q=accessibility');
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'noindex, follow');
   expect(runtimeFailures).toEqual([]);
 });
 

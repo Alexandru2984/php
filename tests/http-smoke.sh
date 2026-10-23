@@ -114,6 +114,53 @@ grep --quiet '"code":"invalid_limit"' "${tmp_dir}/api-error.json"
 [[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/api/v1/messages?unknown=1")" == 400 ]]
 [[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --data 'action=post' "${APP_ORIGIN}/api/v1/messages")" == 405 ]]
 [[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/not-a-route")" == 404 ]]
+
+sitemap_headers="${tmp_dir}/sitemap-headers.txt"
+sitemap_body="${tmp_dir}/sitemap.xml"
+[[ "$(curl --silent --show-error --dump-header "${sitemap_headers}" --output "${sitemap_body}" --write-out '%{http_code}' "${APP_ORIGIN}/sitemap.xml")" == 200 ]]
+grep --ignore-case --quiet '^Content-Type: application/xml; charset=utf-8' "${sitemap_headers}"
+grep --ignore-case --quiet '^Cache-Control: public, max-age=30, stale-while-revalidate=60' "${sitemap_headers}"
+if grep --ignore-case --quiet '^Set-Cookie:' "${sitemap_headers}"; then
+    echo 'Sitemap unexpectedly emitted a cookie.' >&2
+    exit 1
+fi
+# The PHP snippet is intentionally single-quoted shell input.
+# shellcheck disable=SC2016
+php -r '$xml=simplexml_load_file($argv[1]);exit($xml===false?1:0);' "${sitemap_body}"
+grep --fixed-strings --quiet "<loc>${APP_ORIGIN}/</loc>" "${sitemap_body}"
+sitemap_etag="$(sed -n 's/^ETag: \(.*\)\r$/\1/ip' "${sitemap_headers}")"
+[[ "${sitemap_etag}" =~ ^\"[0-9a-f]{64}\"$ ]]
+[[ "$(curl --silent --show-error --output "${tmp_dir}/sitemap-conditional.xml" \
+    --write-out '%{http_code}' --header "If-None-Match: ${sitemap_etag}" \
+    "${APP_ORIGIN}/sitemap.xml")" == 304 ]]
+[[ ! -s "${tmp_dir}/sitemap-conditional.xml" ]]
+[[ "$(curl --silent --show-error --head --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/sitemap.xml")" == 200 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/sitemap.xml?unexpected=1")" == 400 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --data 'x=1' "${APP_ORIGIN}/sitemap.xml")" == 405 ]]
+
+feed_headers="${tmp_dir}/feed-headers.txt"
+feed_body="${tmp_dir}/feed.xml"
+[[ "$(curl --silent --show-error --dump-header "${feed_headers}" --output "${feed_body}" --write-out '%{http_code}' "${APP_ORIGIN}/feed.xml")" == 200 ]]
+grep --ignore-case --quiet '^Content-Type: application/rss+xml; charset=utf-8' "${feed_headers}"
+grep --ignore-case --quiet '^X-Robots-Tag: noindex' "${feed_headers}"
+if grep --ignore-case --quiet '^Set-Cookie:' "${feed_headers}"; then
+    echo 'RSS feed unexpectedly emitted a cookie.' >&2
+    exit 1
+fi
+# The PHP snippet is intentionally single-quoted shell input.
+# shellcheck disable=SC2016
+php -r '$xml=simplexml_load_file($argv[1]);exit($xml===false?1:0);' "${feed_body}"
+
+robots_body="$(curl --silent --show-error --fail "${APP_ORIGIN}/robots.txt")"
+grep --fixed-strings --quiet 'Sitemap: https://php.micutu.com/sitemap.xml' <<<"${robots_body}"
+favicon_headers="${tmp_dir}/favicon-headers.txt"
+favicon_body="${tmp_dir}/favicon.svg"
+curl --silent --show-error --fail --dump-header "${favicon_headers}" \
+    --output "${favicon_body}" "${APP_ORIGIN}/assets/favicon.svg"
+grep --ignore-case --quiet '^Content-Type: image/svg+xml' "${favicon_headers}"
+# The PHP snippet is intentionally single-quoted shell input.
+# shellcheck disable=SC2016
+php -r '$xml=simplexml_load_file($argv[1]);exit($xml!==false&&$xml->getName()==="svg"?0:1);' "${favicon_body}"
 if find "${web_session_dir}" -type f -print -quit | grep --quiet .; then
     echo 'Sessionless API unexpectedly created a PHP session.' >&2
     exit 1
@@ -135,6 +182,13 @@ grep --quiet 'data-do-not-track="true"' <<<"${html}"
 grep --quiet 'data-exclude-search="true"' <<<"${html}"
 grep --quiet 'data-exclude-hash="true"' <<<"${html}"
 grep --quiet 'data-performance="true"' <<<"${html}"
+grep --fixed-strings --quiet '<title>Micuțu Guestbook · Leave a public message</title>' <<<"${html}"
+grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}/\">" <<<"${html}"
+grep --fixed-strings --quiet '<meta name="robots" content="index, follow,' <<<"${html}"
+grep --fixed-strings --quiet '<meta property="og:site_name" content="Micuțu Guestbook">' <<<"${html}"
+grep --fixed-strings --quiet 'itemtype="https://schema.org/WebSite"' <<<"${html}"
+grep --fixed-strings --quiet 'href="/feed.xml"' <<<"${html}"
+grep --fixed-strings --quiet 'href="/assets/favicon.svg"' <<<"${html}"
 
 request_code() {
     curl --silent --show-error --output /dev/null --write-out '%{http_code}' "$@"
@@ -184,7 +238,15 @@ message_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT id FROM messa
 permalink_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/?message=${message_id}")"
 grep --quiet 'Hello from the isolated smoke test' <<<"${permalink_html}"
 grep --quiet 'No free-text report or reporter identifier is stored.' <<<"${permalink_html}"
+grep --fixed-strings --quiet '<title>Message by Alice · Micuțu Guestbook</title>' <<<"${permalink_html}"
+grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}/?message=${message_id}\">" <<<"${permalink_html}"
+grep --fixed-strings --quiet 'itemtype="https://schema.org/DiscussionForumPosting"' <<<"${permalink_html}"
+grep --fixed-strings --quiet 'itemprop="datePublished"' <<<"${permalink_html}"
+grep --fixed-strings --quiet 'itemprop="text"' <<<"${permalink_html}"
 [[ "$(request_code "${APP_ORIGIN}/?message%5B%5D=${message_id}")" == 400 ]]
+[[ "$(request_code "${APP_ORIGIN}/?message=999999999")" == 404 ]]
+[[ "$(request_code "${APP_ORIGIN}/?message=${message_id}&q=hello")" == 400 ]]
+[[ "$(request_code "${APP_ORIGIN}/?page=999999")" == 404 ]]
 
 duplicate_cookie_jar="${tmp_dir}/duplicate-cookies.txt"
 duplicate_html="$(curl --silent --show-error --cookie-jar "${duplicate_cookie_jar}" "${APP_ORIGIN}/")"
@@ -211,10 +273,16 @@ grep --quiet 'Message received and queued for moderator review.' <<<"${queued_ht
      WHERE event_type = 'message.queued' AND subject_hash IS NULL;")" == 1 ]]
 public_html="$(curl --silent --show-error "${APP_ORIGIN}/")"
 [[ "$(grep -o 'Hello from the isolated smoke test' <<<"${public_html}" | wc -l)" == 1 ]]
+sitemap_populated="$(curl --silent --show-error "${APP_ORIGIN}/sitemap.xml")"
+grep --fixed-strings --quiet "${APP_ORIGIN}/?message=${message_id}" <<<"${sitemap_populated}"
+[[ "$(grep -o '?message=' <<<"${sitemap_populated}" | wc -l)" == 1 ]]
+feed_populated="$(curl --silent --show-error "${APP_ORIGIN}/feed.xml")"
+[[ "$(grep -o 'Hello from the isolated smoke test' <<<"${feed_populated}" | wc -l)" == 1 ]]
 
 search_html="$(curl --silent --show-error --get \
     --data-urlencode 'q=Alice isolated smoke' "${APP_ORIGIN}/")"
 grep --quiet 'Hello from the isolated smoke test' <<<"${search_html}"
+grep --fixed-strings --quiet '<meta name="robots" content="noindex, follow">' <<<"${search_html}"
 special_search_code="$(request_code --get \
     --data-urlencode 'q=" OR author:* NEAR(' "${APP_ORIGIN}/")"
 [[ "${special_search_code}" == 200 ]]
@@ -256,7 +324,10 @@ report_code="$(request_code \
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT attempts FROM rate_limits WHERE scope = 'abuse-report';")" == 1 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT group_concat(name, ',') FROM pragma_table_info('abuse_reports');")" == 'id,message_id,category,status,created_at,reviewed_at' ]]
 
-rss="$(curl --silent --show-error "${APP_ORIGIN}/?format=rss")"
+legacy_rss_headers="$(curl --silent --show-error --head "${APP_ORIGIN}/?format=rss")"
+grep --ignore-case --quiet '^HTTP/1.1 301' <<<"${legacy_rss_headers}"
+grep --ignore-case --quiet '^Location: /feed.xml' <<<"${legacy_rss_headers}"
+rss="$(curl --silent --show-error "${APP_ORIGIN}/feed.xml")"
 grep --quiet '<rss version="2.0">' <<<"${rss}"
 grep --quiet 'Hello from the isolated smoke test' <<<"${rss}"
 # The PHP snippet is intentionally single-quoted shell input.
@@ -321,6 +392,13 @@ hidden_search_html="$(curl --silent --show-error --get \
     --data-urlencode 'q=isolated smoke' "${APP_ORIGIN}/")"
 if grep --quiet 'Hello from the isolated smoke test' <<<"${hidden_search_html}"; then
     echo 'FTS search exposed a moderated message.' >&2
+    exit 1
+fi
+hidden_sitemap="$(curl --silent --show-error "${APP_ORIGIN}/sitemap.xml")"
+hidden_feed="$(curl --silent --show-error "${APP_ORIGIN}/feed.xml")"
+if grep --fixed-strings --quiet "?message=${message_id}" <<<"${hidden_sitemap}" \
+    || grep --fixed-strings --quiet 'Hello from the isolated smoke test' <<<"${hidden_feed}"; then
+    echo 'A discovery document exposed a moderated message.' >&2
     exit 1
 fi
 

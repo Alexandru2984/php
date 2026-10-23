@@ -37,6 +37,18 @@ function check(bool $condition, string $description): void
 
 check(e('<script>"x"</script>') === '&lt;script&gt;&quot;x&quot;&lt;/script&gt;', 'HTML is escaped');
 check(xml_e('<tag>&"') === '&lt;tag&gt;&amp;&quot;', 'XML is escaped');
+check(
+    seo_excerpt("  A message\nwith   spacing  ") === 'A message with spacing',
+    'SEO descriptions collapse whitespace'
+);
+check(
+    seo_excerpt(str_repeat('a', 25), 20) === str_repeat('a', 19) . '…',
+    'SEO descriptions are bounded without invalid Unicode truncation'
+);
+check(
+    utc_iso8601('2026-10-23 08:00:00') === '2026-10-23T08:00:00Z',
+    'database timestamps become RFC 3339 UTC values'
+);
 
 $firstToken = csrf_token();
 check(strlen($firstToken) === 64 && ctype_xdigit($firstToken), 'CSRF token is 32 random bytes');
@@ -155,6 +167,37 @@ check(
 check(
     (int) $db->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'messages_fts'")->fetchColumn() === 1,
     'FTS5 search index exists'
+);
+
+$seoDb = new PDO('sqlite::memory:');
+$seoDb->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+$seoDb->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+foreach ($migrationFiles as $migrationFile) {
+    $seoDb->exec((string) file_get_contents($migrationFile));
+}
+$seoDb->exec(
+    "INSERT INTO messages (author, content, created_at, status)
+     VALUES ('Public author', 'Public & indexable', '2026-10-23 08:00:00', 'published'),
+            ('Private author', 'Pending secret', '2026-10-23 09:00:00', 'pending')"
+);
+$sitemapFixture = public_sitemap_xml($seoDb);
+check(
+    str_contains($sitemapFixture, 'https://php.micutu.com/?message=1')
+        && !str_contains($sitemapFixture, 'message=2')
+        && !str_contains($sitemapFixture, 'Pending secret'),
+    'sitemap contains canonical published permalinks only'
+);
+$rssFixture = public_rss_xml($seoDb);
+check(
+    str_contains($rssFixture, 'Public &amp; indexable')
+        && str_contains($rssFixture, 'https://php.micutu.com/?message=1')
+        && !str_contains($rssFixture, 'Pending secret'),
+    'RSS contains escaped published records only'
+);
+check(
+    simplexml_load_string($sitemapFixture) !== false
+        && simplexml_load_string($rssFixture) !== false,
+    'generated sitemap and RSS are valid XML'
 );
 check(
     fts5_query_from_text('  Alice, HELLO! Alice ') === '"alice"* AND "hello"*',

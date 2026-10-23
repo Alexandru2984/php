@@ -164,13 +164,28 @@ unset api_headers api_headers_lower
 
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
-if ! curl "${curl_args[@]}" "${base_url}/?format=rss" | php -r '
+if ! curl "${curl_args[@]}" "${base_url}/feed.xml" | php -r '
     $value = stream_get_contents(STDIN);
     exit(str_starts_with(ltrim($value), "<?xml")
         && str_contains($value, "<rss version=\"2.0\">") ? 0 : 1);
 '; then
     fail rss schema-invalid
 fi
+
+# The PHP snippet is intentionally single-quoted shell input.
+# shellcheck disable=SC2016
+if ! curl "${curl_args[@]}" "${base_url}/sitemap.xml" | php -r '
+    $value = simplexml_load_string(stream_get_contents(STDIN));
+    exit($value !== false && $value->getName() === "urlset" ? 0 : 1);
+'; then
+    fail seo sitemap-invalid
+fi
+
+robots="$(curl "${curl_args[@]}" "${base_url}/robots.txt")" \
+    || fail seo robots-unavailable
+[[ "${robots}" == *'Sitemap: https://php.micutu.com/sitemap.xml'* ]] \
+    || fail seo sitemap-discovery-missing
+unset robots
 
 [[ -L "${release_link}" ]] || fail release current-not-symlink
 resolved_release="$(readlink -f -- "${release_link}")" || fail release target-unavailable
@@ -279,4 +294,4 @@ disk_used="$(df -P -- "${storage_dir}" | awk 'NR == 2 {gsub(/%/, "", $5); print 
 [[ "${disk_used}" =~ ^[0-9]+$ ]] || fail disk usage-invalid
 (( disk_used < max_disk_used )) || fail disk threshold-exceeded
 
-echo 'guestbook-health: ok web api rss analytics database security moderation backup restore-drill offsite permissions disk'
+echo 'guestbook-health: ok web api rss seo analytics database security moderation backup restore-drill offsite permissions disk'

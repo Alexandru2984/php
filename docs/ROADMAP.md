@@ -190,6 +190,24 @@ for users/moderators to reverse mistakes.
 **Exit:** backup and release SLOs are measured; a failed health-check rolls back; a
 credential-compromise tabletop reaches containment within target time.
 
+## Stage 9 — Discovery, sharing and healthy growth (P2)
+
+- Publish self-canonical indexable pages, a bounded sitemap, clean RSS discovery,
+  crawlable identity assets and server-rendered social metadata.
+- Describe visible user posts with standards-based structured data without weakening
+  CSP or exposing moderation-only records.
+- Keep internal search and authenticated views out of the index; return real 404s for
+  unavailable permalinks and monitor discovery documents through production health.
+- Add progressive-enhancement sharing that never sends a URL to a third party unless
+  the visitor explicitly invokes their browser's native share UI.
+- Establish Search Console/Bing ownership, review coverage and rich-result errors,
+  and record organic performance without importing search queries into Umami.
+
+**Current evidence:** canonical/robots/Open Graph metadata, `WebSite` and
+`DiscussionForumPosting` microdata, `/sitemap.xml`, `/feed.xml`, a crawlable favicon
+and real 404s are covered by unit, HTTP, health and Chromium checks. Search Console
+ownership, production rich-result validation and crawler-log dashboards remain.
+
 ## Explicitly deferred until foundations pass
 
 - Full PWA/offline HTML caching (risk of caching personalized admin/CSRF pages).
