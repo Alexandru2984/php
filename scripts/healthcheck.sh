@@ -25,10 +25,11 @@ max_backup_age="${GUESTBOOK_MAX_BACKUP_AGE_SECONDS:-108000}"
 max_restore_drill_age="${GUESTBOOK_MAX_RESTORE_DRILL_AGE_SECONDS:-691200}"
 max_offsite_age="${GUESTBOOK_MAX_OFFSITE_AGE_SECONDS:-108000}"
 max_disk_used="${GUESTBOOK_MAX_DISK_USED_PERCENT:-90}"
-expected_migrations="${GUESTBOOK_EXPECTED_MIGRATIONS:-5}"
+expected_migrations="${GUESTBOOK_EXPECTED_MIGRATIONS:-6}"
 login_window="${GUESTBOOK_LOGIN_FAILURE_WINDOW_SECONDS:-900}"
 login_threshold="${GUESTBOOK_LOGIN_FAILURE_THRESHOLD:-5}"
 open_report_threshold="${GUESTBOOK_OPEN_REPORT_THRESHOLD:-10}"
+pending_message_threshold="${GUESTBOOK_PENDING_MESSAGE_THRESHOLD:-10}"
 allow_http="${GUESTBOOK_HEALTH_ALLOW_HTTP:-0}"
 
 fail() {
@@ -62,6 +63,7 @@ require_uint expected-migrations "${expected_migrations}" 1 1000
 require_uint login-window "${login_window}" 60 86400
 require_uint login-threshold "${login_threshold}" 1 1000
 require_uint open-report-threshold "${open_report_threshold}" 1 100000
+require_uint pending-message-threshold "${pending_message_threshold}" 1 100000
 [[ "${allow_http}" == 0 || "${allow_http}" == 1 ]] \
     || fail configuration allow-http-invalid
 
@@ -206,6 +208,12 @@ open_reports="$(sqlite3 -batch "${db_path}" \
     || fail moderation report-query-failed
 [[ "${open_reports}" =~ ^[0-9]+$ ]] || fail moderation report-count-invalid
 (( open_reports < open_report_threshold )) || fail moderation open-report-threshold
+
+pending_messages="$(sqlite3 -batch "${db_path}" \
+    "SELECT COUNT(*) FROM messages WHERE status = 'pending';")" \
+    || fail moderation pending-query-failed
+[[ "${pending_messages}" =~ ^[0-9]+$ ]] || fail moderation pending-count-invalid
+(( pending_messages < pending_message_threshold )) || fail moderation pending-message-threshold
 
 latest_backup=''
 latest_mtime=0

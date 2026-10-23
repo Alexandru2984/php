@@ -55,7 +55,7 @@ mv "${snapshot}.gz" "${backup_dir}/database-20260101T000000Z.sqlite.gz"
 chmod 0600 "${backup_dir}/database-20260101T000000Z.sqlite.gz"
 now_epoch="$(date +%s)"
 backup_mtime="$(stat -c '%Y' "${backup_dir}/database-20260101T000000Z.sqlite.gz")"
-printf 'success_epoch=%s backup_mtime=%s migrations=5\n' \
+printf 'success_epoch=%s backup_mtime=%s migrations=6\n' \
     "${now_epoch}" "${backup_mtime}" >"${restore_status_file}"
 chmod 0600 "${restore_status_file}"
 printf 'success_epoch=%s source_mtime=%s artifacts=1 verified=2 configured=2 failed=0\n' \
@@ -94,8 +94,9 @@ health_env=(
     'GUESTBOOK_MAX_RESTORE_DRILL_AGE_SECONDS=691200'
     'GUESTBOOK_MAX_OFFSITE_AGE_SECONDS=108000'
     'GUESTBOOK_MAX_DISK_USED_PERCENT=99'
-    'GUESTBOOK_EXPECTED_MIGRATIONS=5'
+    'GUESTBOOK_EXPECTED_MIGRATIONS=6'
     'GUESTBOOK_OPEN_REPORT_THRESHOLD=3'
+    'GUESTBOOK_PENDING_MESSAGE_THRESHOLD=3'
     'GUESTBOOK_HEALTH_ALLOW_HTTP=1'
 )
 
@@ -127,6 +128,18 @@ set -e
 [[ "${moderation_output}" == *'component=moderation reason=open-report-threshold'* ]]
 sqlite3 "${storage_dir}/database.sqlite" "DELETE FROM abuse_reports; DELETE FROM messages;"
 
+sqlite3 "${storage_dir}/database.sqlite" \
+    "INSERT INTO messages (author, content, status, moderation_reason)
+     WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM n WHERE x < 3)
+     SELECT 'Fixture', 'Pending moderation fixture', 'pending', 'risk' FROM n;"
+set +e
+pending_output="$(env "${health_env[@]}" bash "${repo_dir}/scripts/healthcheck.sh" 2>&1)"
+pending_exit=$?
+set -e
+[[ "${pending_exit}" -ne 0 ]]
+[[ "${pending_output}" == *'component=moderation reason=pending-message-threshold'* ]]
+sqlite3 "${storage_dir}/database.sqlite" "DELETE FROM messages;"
+
 touch -d '3 days ago' "${backup_dir}/database-20260101T000000Z.sqlite.gz"
 set +e
 stale_output="$(env "${health_env[@]}" bash "${repo_dir}/scripts/healthcheck.sh" 2>&1)"
@@ -138,7 +151,7 @@ touch "${backup_dir}/database-20260101T000000Z.sqlite.gz"
 
 touch -d '9 days ago' "${restore_status_file}"
 stale_restore_epoch="$(( $(date +%s) - 777600 ))"
-printf 'success_epoch=%s backup_mtime=%s migrations=5\n' \
+printf 'success_epoch=%s backup_mtime=%s migrations=6\n' \
     "${stale_restore_epoch}" "${backup_mtime}" >"${restore_status_file}"
 set +e
 restore_output="$(env "${health_env[@]}" bash "${repo_dir}/scripts/healthcheck.sh" 2>&1)"
@@ -148,7 +161,7 @@ set -e
 [[ "${restore_output}" == *'component=restore-drill reason=stale'* ]]
 now_epoch="$(date +%s)"
 backup_mtime="$(stat -c '%Y' "${backup_dir}/database-20260101T000000Z.sqlite.gz")"
-printf 'success_epoch=%s backup_mtime=%s migrations=5\n' \
+printf 'success_epoch=%s backup_mtime=%s migrations=6\n' \
     "${now_epoch}" "${backup_mtime}" >"${restore_status_file}"
 
 stale_offsite_epoch="$(( $(date +%s) - 259200 ))"

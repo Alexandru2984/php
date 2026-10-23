@@ -12,6 +12,8 @@ User=php-guestbook
 Group=php-guestbook
 UMask=0077
 Environment=GUESTBOOK_ANALYTICS_WEBSITE_ID=c4e3a772-26b3-47e7-afec-b82097684551
+Environment=GUESTBOOK_OPEN_REPORT_THRESHOLD=10
+Environment=GUESTBOOK_PENDING_MESSAGE_THRESHOLD=10
 ExecStart=/usr/bin/bash /srv/canary/php.micutu.com/current/scripts/healthcheck.sh
 TimeoutStartSec=45
 

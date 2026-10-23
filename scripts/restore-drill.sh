@@ -11,7 +11,7 @@ backup_dir="${GUESTBOOK_BACKUP_DIR:-/srv/backups/php-guestbook}"
 status_file="${GUESTBOOK_RESTORE_STATUS_FILE:-${backup_dir}/restore-drill.last-success}"
 tmp_root="${GUESTBOOK_RESTORE_TMP_DIR:-${TMPDIR:-/tmp}}"
 max_backup_age="${GUESTBOOK_RESTORE_MAX_BACKUP_AGE_SECONDS:-108000}"
-expected_migrations="${GUESTBOOK_EXPECTED_MIGRATIONS:-5}"
+expected_migrations="${GUESTBOOK_EXPECTED_MIGRATIONS:-6}"
 
 fail() {
     printf 'guestbook-restore-drill: FAIL component=%s reason=%s\n' "$1" "$2" >&2
@@ -104,7 +104,8 @@ sqlite3 -batch -readonly "${restored_db}" >/dev/null <<'SQL' \
     || fail restore schema-contract-invalid
 SELECT version, applied_at FROM schema_migrations LIMIT 0;
 SELECT id, author, content, ip_hash, created_at, status, deleted_at,
-       moderation_reason, moderated_at FROM messages LIMIT 0;
+       moderation_reason, moderated_at, content_fingerprint, risk_score,
+       risk_flags FROM messages LIMIT 0;
 SELECT scope, subject_hash, window_started_at, attempts, penalty_level,
        blocked_until, updated_at FROM rate_limits LIMIT 0;
 SELECT id, event_type, outcome, subject_hash, related_id, created_at

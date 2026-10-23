@@ -11,6 +11,7 @@ define('AUTHOR_MAX', 60);
 define('MESSAGE_MAX', 2000);
 define('RATE_LIMIT_SECONDS', 15);
 define('RATE_LIMIT_PER_HOUR', 12);
+define('RISK_REVIEW_THRESHOLD', 40);
 
 $_SESSION = [];
 $_POST = [];
@@ -101,6 +102,27 @@ check(client_ip() === '0.0.0.0', 'invalid remote address is rejected');
 check($error === null && $author === 'Alice', 'valid author is normalized');
 check($content === "Hello\n\n\nworld", 'newlines and controls are normalized');
 
+[$author, $content, $error, $signals] = validate_submission([
+    'author' => "Ali\u{202E}ce",
+    'message' => "safe\u{200B} text",
+]);
+check(
+    $error === null
+        && $author === 'Alice'
+        && $content === 'safe text'
+        && $signals === ['unicode_control'],
+    'invisible Unicode controls are removed and signalled with a fixed code'
+);
+
+[, $content, $error] = validate_submission([
+    'author' => 'Unicode fixture',
+    'message' => "Cafe\u{0301}",
+]);
+check(
+    $error === null && $content === "Caf\u{00E9}",
+    'canonically equivalent Unicode is normalized to NFC'
+);
+
 [, , $error] = validate_submission(['author' => [], 'message' => 'hello']);
 check($error !== null, 'nested author input is rejected');
 [, , $error] = validate_submission(['author' => 'Alice', 'message' => []]);
@@ -121,7 +143,8 @@ $columns = $db->query('PRAGMA table_info(messages)')->fetchAll(PDO::FETCH_COLUMN
 check(
     $columns === [
         'id', 'author', 'content', 'ip_hash', 'created_at', 'status', 'deleted_at',
-        'moderation_reason', 'moderated_at',
+        'moderation_reason', 'moderated_at', 'content_fingerprint', 'risk_score',
+        'risk_flags',
     ],
     'migrated schema has expected columns'
 );
@@ -184,6 +207,101 @@ security_event($db, 'admin.login', 'failure', $subject, null, 100);
 check(
     (int) $db->query('SELECT COUNT(*) FROM security_events')->fetchColumn() === 1,
     'security event is persisted'
+);
+
+$riskNow = 1800000000;
+$firstSubmission = create_submission(
+    $db,
+    'Risk fixture',
+    'A unique normal submission',
+    $subject,
+    [],
+    null,
+    $riskNow
+);
+check(
+    $firstSubmission['status'] === 'published'
+        && $firstSubmission['score'] === 0
+        && $firstSubmission['flags'] === [],
+    'a normal submission publishes without risk flags'
+);
+$duplicateSubmission = create_submission(
+    $db,
+    'Another person',
+    'A unique normal submission',
+    $subject,
+    [],
+    null,
+    $riskNow + 1
+);
+check(
+    $duplicateSubmission['status'] === 'pending'
+        && $duplicateSubmission['score'] === 50
+        && $duplicateSubmission['flags'] === ['duplicate'],
+    'a recent keyed duplicate is queued instead of deleted'
+);
+check(
+    submission_fingerprint("Cafe\u{0301}") === submission_fingerprint("Caf\u{00E9}"),
+    'duplicate fingerprints collapse canonically equivalent Unicode'
+);
+$duplicateRow = $db->query(
+    'SELECT status, moderation_reason, risk_score, risk_flags,
+            length(content_fingerprint) AS fingerprint_length
+     FROM messages WHERE id = ' . (int) $duplicateSubmission['id']
+)->fetch(PDO::FETCH_ASSOC);
+check(
+    $duplicateRow !== false
+        && $duplicateRow['status'] === 'pending'
+        && $duplicateRow['moderation_reason'] === 'risk'
+        && (int) $duplicateRow['risk_score'] === 50
+        && json_decode((string) $duplicateRow['risk_flags'], true) === ['duplicate']
+        && (int) $duplicateRow['fingerprint_length'] === 64,
+    'queued submission stores only bounded score, fixed flags and keyed fingerprint'
+);
+check(
+    (int) $db->query(
+        "SELECT COUNT(*) FROM security_events
+         WHERE event_type = 'message.queued' AND subject_hash IS NULL"
+    )->fetchColumn() === 1,
+    'queued-submission event contains no visitor identifier'
+);
+$linkRisk = assess_submission_risk(
+    $db,
+    'Link fixture',
+    'https://one.test https://two.test https://three.test',
+    [],
+    null,
+    $riskNow + 2
+);
+check(
+    $linkRisk['score'] === 70
+        && $linkRisk['flags'] === ['many_links', 'link_heavy'],
+    'three link-heavy URLs cross the human-review threshold with explainable flags'
+);
+$combinedRisk = assess_submission_risk(
+    $db,
+    'spam.example',
+    '!!!!!!!!!!!!!!!!',
+    [],
+    1,
+    $riskNow + 3
+);
+check(
+    $combinedRisk['score'] === 50
+        && $combinedRisk['flags'] === ['author_address', 'repeated_run', 'fast_submit'],
+    'weak deterministic signals combine while fast submission cannot queue alone'
+);
+$unicodeRisk = assess_submission_risk(
+    $db,
+    'Unicode fixture',
+    'cleaned text',
+    ['unicode_control'],
+    null,
+    $riskNow + 4
+);
+check(
+    $unicodeRisk['score'] === 45 && $unicodeRisk['flags'] === ['unicode_control'],
+    'removed Unicode formatting controls still route the post to review'
 );
 $db->exec(
     "INSERT INTO messages (author, content, ip_hash, created_at)
@@ -322,13 +440,21 @@ check(
 );
 check(!api_etag_matches('"older"', '"current"'), 'non-matching ETag is rejected');
 $db->exec(
-    "INSERT INTO messages (author, content, ip_hash, created_at)
-     VALUES ('Alice', 'old', 'pseudonymous', '1970-01-01 00:00:00')"
+    "INSERT INTO messages (author, content, ip_hash, content_fingerprint, created_at)
+     VALUES ('Alice', 'old', 'pseudonymous', '" . str_repeat('a', 64) . "',
+             '1970-01-01 00:00:00')"
 );
 $pruned = prune_security_records($db, 100 + 91 * 86400);
 check($pruned['security_events'] === 1, 'expired security events are pruned');
 check($pruned['abuse_reports'] === 1, 'old reviewed abuse reports are pruned');
 check($pruned['message_identifiers'] === 1, 'old message identifier is detached');
+check(
+    (int) $db->query(
+        "SELECT COUNT(*) FROM messages
+         WHERE content = 'old' AND ip_hash IS NULL AND content_fingerprint IS NULL"
+    )->fetchColumn() === 1,
+    'posting and duplicate identifiers are both detached after 24 hours'
+);
 
 fwrite(STDOUT, "\n{$tests} tests, {$failures} failures\n");
 exit($failures === 0 ? 0 : 1);

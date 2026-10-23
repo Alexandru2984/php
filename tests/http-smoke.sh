@@ -186,6 +186,32 @@ grep --quiet 'Hello from the isolated smoke test' <<<"${permalink_html}"
 grep --quiet 'No free-text report or reporter identifier is stored.' <<<"${permalink_html}"
 [[ "$(request_code "${APP_ORIGIN}/?message%5B%5D=${message_id}")" == 400 ]]
 
+duplicate_cookie_jar="${tmp_dir}/duplicate-cookies.txt"
+duplicate_html="$(curl --silent --show-error --cookie-jar "${duplicate_cookie_jar}" "${APP_ORIGIN}/")"
+duplicate_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${duplicate_html}" | head -n 1)"
+[[ "${duplicate_csrf}" =~ ^[0-9a-f]{64}$ ]]
+duplicate_code="$(request_code \
+    --cookie "${duplicate_cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${duplicate_csrf}" \
+    --data-urlencode 'action=post' \
+    --data-urlencode 'website=' \
+    --data-urlencode 'author=Copy bot' \
+    --data-urlencode 'message=Hello from the isolated smoke test' \
+    "${APP_ORIGIN}/")"
+[[ "${duplicate_code}" == 303 ]]
+queued_html="$(curl --silent --show-error --cookie "${duplicate_cookie_jar}" "${APP_ORIGIN}/")"
+grep --quiet 'Message received and queued for moderator review.' <<<"${queued_html}"
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT COUNT(*) FROM messages
+     WHERE status = 'pending' AND moderation_reason = 'risk' AND risk_score >= 50
+       AND EXISTS (SELECT 1 FROM json_each(risk_flags) WHERE value = 'duplicate');")" == 1 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT COUNT(*) FROM security_events
+     WHERE event_type = 'message.queued' AND subject_hash IS NULL;")" == 1 ]]
+public_html="$(curl --silent --show-error "${APP_ORIGIN}/")"
+[[ "$(grep -o 'Hello from the isolated smoke test' <<<"${public_html}" | wc -l)" == 1 ]]
+
 search_html="$(curl --silent --show-error --get \
     --data-urlencode 'q=Alice isolated smoke' "${APP_ORIGIN}/")"
 grep --quiet 'Hello from the isolated smoke test' <<<"${search_html}"
@@ -275,6 +301,8 @@ admin_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}
 grep --quiet 'Sign out' <<<"${admin_html}"
 grep --quiet 'Abuse reports · 1 open' <<<"${admin_html}"
 grep --quiet 'Append-only admin audit' <<<"${admin_html}"
+grep --quiet 'Review score ' <<<"${admin_html}"
+grep --quiet 'Recent duplicate' <<<"${admin_html}"
 
 admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
 hide_code="$(request_code \
@@ -298,7 +326,7 @@ fi
 
 admin_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
 admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
-grep --quiet 'Moderated messages · 1 recent' <<<"${admin_html}"
+grep --quiet 'Moderated messages · 2 recent' <<<"${admin_html}"
 report_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT id FROM abuse_reports WHERE status = 'open';")"
 review_code="$(request_code \
     --cookie "${cookie_jar}" \

@@ -36,13 +36,13 @@ drill_env=(
     "GUESTBOOK_RESTORE_STATUS_FILE=${status_file}"
     "GUESTBOOK_RESTORE_TMP_DIR=${scratch_dir}"
     'GUESTBOOK_RESTORE_MAX_BACKUP_AGE_SECONDS=108000'
-    'GUESTBOOK_EXPECTED_MIGRATIONS=5'
+    'GUESTBOOK_EXPECTED_MIGRATIONS=6'
 )
 
 output="$(env "${drill_env[@]}" bash "${repo_dir}/scripts/restore-drill.sh")"
 [[ "${output}" == guestbook-restore-drill:\ ok* ]]
 [[ -f "${status_file}" && "$(stat -c '%a' "${status_file}")" == 600 ]]
-grep --quiet '^success_epoch=[0-9]\+ backup_mtime=[0-9]\+ migrations=5$' "${status_file}"
+grep --quiet '^success_epoch=[0-9]\+ backup_mtime=[0-9]\+ migrations=6$' "${status_file}"
 [[ -z "$(find "${scratch_dir}" -mindepth 1 -print -quit)" ]]
 
 backup_file="$(find "${backup_dir}" -maxdepth 1 -type f -name 'database-*.sqlite.gz' -print -quit)"

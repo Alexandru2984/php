@@ -23,6 +23,8 @@ export APP_SECRET=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 export APP_ORIGIN="http://127.0.0.1:${port}"
 export APP_STORAGE_DIR="${tmp_dir}/storage"
 export ANALYTICS_WEBSITE_ID=""
+ADMIN_PASSWORD_HASH="$(php -r 'echo password_hash("browser-test-password", PASSWORD_BCRYPT, ["cost" => 4]);')"
+export ADMIN_PASSWORD_HASH
 
 mkdir -p "${app_dir}/tests" "${APP_STORAGE_DIR}" "${tmp_dir}/sessions"
 for path in index.php config.php lib.php api.php openapi.json assets migrations scripts .well-known; do

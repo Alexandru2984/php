@@ -142,3 +142,32 @@ test('light and dark interfaces have no automatically detectable WCAG A/AA viola
 
   expect(runtimeFailures).toEqual([]);
 });
+
+test('risk-queued duplicate is private, explained to admin and reversibly publishable', async ({ page }) => {
+  const runtimeFailures = observeRuntimeFailures(page);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/');
+
+  await page.getByRole('textbox', { name: /Name/ }).fill('Queued browser check');
+  await page.getByRole('textbox', { name: 'Message' }).fill('Responsive accessibility flow');
+  await page.getByRole('button', { name: 'Post message' }).click();
+  await expect(page.getByRole('status')).toContainText('queued for moderator review');
+  await expect(page.getByText('Responsive accessibility flow', { exact: true })).toHaveCount(1);
+
+  await page.locator('details.admin > summary').click();
+  await page.locator('input[name="password"]').fill('browser-test-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Moderation & audit' })).toBeVisible();
+  await expect(page.getByText(/Review score \d+\/100/)).toBeVisible();
+  await expect(page.getByText('Recent duplicate')).toBeVisible();
+
+  const results = await new AxeBuilder({ page }).withTags(wcagTags).analyze();
+  expect(violationSummary(results), 'admin queue WCAG violations').toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+
+  await page.locator('.moderation-item').filter({ hasText: 'Queued browser check' })
+    .getByRole('button', { name: 'Publish' }).click();
+  await expect(page.getByRole('status')).toContainText('Moderation state updated');
+  await expect(page.getByText('Responsive accessibility flow', { exact: true })).toHaveCount(2);
+  expect(runtimeFailures).toEqual([]);
+});

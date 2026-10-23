@@ -294,28 +294,44 @@ if ($method === 'POST') {
             redirect('/');
         }
 
-        [$author, $content, $error] = validate_submission($_POST);
+        [$author, $content, $error, $validationSignals] = validate_submission($_POST);
         if ($error !== null) {
             old_input_set($_POST);
             flash_set('error', $error);
             redirect('/');
         }
 
-        $stmt = $pdo->prepare(
-            'INSERT INTO messages (author, content, ip_hash) VALUES (:a, :c, :h)'
+        $submittedAt = time();
+        $issuedAt = filter_var(
+            $_SESSION['compose_issued_at'] ?? null,
+            FILTER_VALIDATE_INT
         );
-        $stmt->execute([
-            ':a' => $author,
-            ':c' => $content,
-            ':h' => client_ip_hash(),
-        ]);
-        $_SESSION['last_post_at'] = time();
-        flash_set('success', 'Message posted!');
+        $formAgeSeconds = $issuedAt === false
+            ? null
+            : max(0, min(86400, $submittedAt - (int) $issuedAt));
+        $result = create_submission(
+            $pdo,
+            $author,
+            $content,
+            client_ip_hash(),
+            $validationSignals,
+            $formAgeSeconds,
+            $submittedAt
+        );
+        $_SESSION['last_post_at'] = $submittedAt;
+        $_SESSION['compose_issued_at'] = $submittedAt;
+        flash_set('success', $result['status'] === 'pending'
+            ? 'Message received and queued for moderator review.'
+            : 'Message posted!');
         redirect('/');
     }
 
     redirect('/');
 }
+
+// Used only as a weak, low-weight automation signal. It is session-local, never
+// persisted and cannot queue an otherwise normal submission by itself.
+$_SESSION['compose_issued_at'] = time();
 
 // ---------------------------------------------------------------------------
 // Read model — search + pagination
@@ -392,10 +408,22 @@ if ($isAdmin) {
         }
     }
     $moderatedMessages = $pdo->query(
-        "SELECT id, author, content, status, moderation_reason, moderated_at, created_at
+        "SELECT id, author, content, status, moderation_reason, moderated_at, created_at,
+                risk_score, risk_flags
          FROM messages WHERE status != 'published'
          ORDER BY COALESCE(moderated_at, deleted_at, created_at) DESC, id DESC LIMIT 30"
     )->fetchAll();
+    foreach ($moderatedMessages as &$moderatedMessage) {
+        $decodedFlags = json_decode((string) $moderatedMessage['risk_flags'], true);
+        $moderatedMessage['risk_flag_codes'] = is_array($decodedFlags)
+            ? array_values(array_filter(
+                $decodedFlags,
+                static fn($flag): bool => is_string($flag)
+                    && in_array($flag, submission_risk_flags(), true)
+            ))
+            : [];
+    }
+    unset($moderatedMessage);
     $openReports = $pdo->query(
         "SELECT r.id, r.message_id, r.category, r.created_at,
                 m.author, m.content, m.status AS message_status
@@ -498,8 +526,19 @@ $reasonLabels = [
     'privacy' => 'Privacy',
     'policy' => 'Policy violation',
     'requested' => 'Author request',
+    'risk' => 'Automated review',
     'other' => 'Other',
     'restored' => 'Restore to public',
+];
+$riskFlagLabels = [
+    'duplicate' => 'Recent duplicate',
+    'unicode_control' => 'Invisible Unicode controls removed',
+    'many_links' => 'Three or more links',
+    'multiple_links' => 'Multiple links',
+    'link_heavy' => 'Link-heavy content',
+    'author_address' => 'Address-like name',
+    'repeated_run' => 'Long repeated run',
+    'fast_submit' => 'Very fast submission',
 ];
 $reportLabels = [
     'spam' => 'Spam or scam',
@@ -775,6 +814,14 @@ $reportLabels = [
                                 </span>
                             </div>
                             <p><?php echo e($moderated['content']); ?></p>
+                            <?php if ((int) $moderated['risk_score'] > 0): ?>
+                            <div class="risk-summary" aria-label="Automated review signals">
+                                <strong>Review score <?php echo (int) $moderated['risk_score']; ?>/100</strong>
+                                <?php foreach ($moderated['risk_flag_codes'] as $riskFlag): ?>
+                                <span><?php echo e($riskFlagLabels[$riskFlag]); ?></span>
+                                <?php endforeach; ?>
+                            </div>
+                            <?php endif; ?>
                             <div class="review-actions moderation-actions">
                             <form method="POST">
                                 <?php echo csrf_field(); ?>
@@ -885,7 +932,7 @@ $reportLabels = [
 
         <details class="privacy" id="privacy">
             <summary>Privacy, moderation &amp; data use</summary>
-            <p>Messages and names are public. A keyed, non-reversible network identifier is used for abuse prevention and detached from messages after 24 hours. Security events are retained for up to 90 days.</p>
+            <p>Messages and names are public. A keyed, non-reversible network identifier is used for abuse prevention and detached from messages after 24 hours. Submissions may be queued for human review using fixed signals such as recent duplication, link density and invisible Unicode controls; no message is automatically deleted. The keyed duplicate fingerprint is also removed after 24 hours. Security events are retained for up to 90 days.</p>
             <p>Abuse reports contain only the selected category and message number. They do not store a reporter identifier or free-text explanation. Reviewed reports are deleted after 90 days; minimal append-only admin actions remain for accountability.</p>
             <?php if (ANALYTICS_WEBSITE_ID !== ''): ?>
             <p>This deployment loads self-hosted analytics from <code>analytics.micutu.com</code>. It respects Do Not Track, excludes query strings and URL fragments, and records aggregate page and performance data.</p>

@@ -25,7 +25,7 @@ The guestbook probe checks:
   the public Cloudflare route;
 - the self-hosted analytics script and all privacy attributes in rendered HTML;
 - SQLite `quick_check`, the minimum migration count, recent admin-login failures and
-  the privacy-minimal count of open abuse reports;
+  privacy-minimal counts of open abuse reports and pending messages;
 - compressed backup integrity and maximum backup age of 30 hours;
 - a two-provider off-host verification marker no older than 30 hours;
 - a validated restore marker no older than eight days, produced only after an
@@ -43,6 +43,7 @@ The guestbook probe checks:
 | SQLite integrity/schema failure | One failed probe | 5 minutes + timer jitter |
 | Admin authentication abuse | 5 failed/blocked attempts in 15 minutes | Next five-minute probe |
 | Unreviewed abuse-report backlog | 10 open reports | Next five-minute probe |
+| Automated-review backlog | 10 pending messages | Next five-minute probe |
 | Backup missing, invalid or old | Older than 30 hours | Next five-minute probe |
 | Off-host copies failed or stopped | Either provider fails, or marker older than 30 hours | Immediate dispatch plus next five-minute probe; a verified surviving copy is still recorded |
 | Restore drill failed or stopped | Failed job or marker older than 8 days | Immediate dispatch or next five-minute probe |
@@ -121,8 +122,8 @@ recovery recipient remain explicit follow-up risks.
 ## CI controls
 
 CI runs the health probe against a disposable HTTP server, migrated SQLite database
-and real compressed backup. It proves healthy behaviour plus login-abuse,
-stale-backup, stale-offsite, stale-restore and writable-release failures. A separate
+and real compressed backup. It proves healthy behaviour plus login-abuse, pending and
+report backlogs, stale-backup, stale-offsite, stale-restore and writable-release failures. A separate
 restore suite proves a valid recovery plus corrupt and stale snapshot rejection. The
 off-host suite proves age recoverability, recipient-digest pinning and destination
 validation. The operations smoke test verifies critical systemd hardening/alert

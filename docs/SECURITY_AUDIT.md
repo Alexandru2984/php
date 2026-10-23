@@ -12,8 +12,8 @@ through S-05 were remediated on 2026-10-21 using an immutable release, a dedicat
 Unix/FPM identity, fail-closed configuration, persistent throttling and an atomic
 cutover. The production database remained at three messages and passed integrity
 checks before and after migration. Detection, a privacy disclosure, reversible
-moderation, category-only abuse reporting, indexed search and an incident-response
-runbook are now deployed. R2 holds verified encrypted backups, while Google Drive
+moderation, category-only abuse reporting, explainable submission-risk review,
+indexed search and an incident-response runbook are now deployed. R2 holds verified encrypted backups, while Google Drive
 redundancy is quota-degraded. Real-browser Axe, reflow and keyboard checks now gate
 CI; a formal tabletop, data-subject operations, Lighthouse and manual screen-reader
 sign-off remain incomplete.
@@ -28,7 +28,7 @@ sign-off remain incomplete.
   mode `0700` directories owned by `php-guestbook`.
 - Versioned migrations ran once and then skipped idempotently. The database reported
   `integrity=ok`, zero foreign-key violations, three published messages, three indexed
-  FTS rows and five applied migrations after the search cutover. The rank-1 external
+  FTS rows and six applied migrations after the risk-review cutover. The rank-1 external
   content/index integrity check passed.
 - Public probes returned `200` for HTML, JSON, RSS, CSS and `security.txt`; sensitive
   paths and path-info returned `404`, unsupported methods returned `405`, and direct
@@ -37,11 +37,11 @@ sign-off remain incomplete.
   sandboxed service identity. Daily jobs and the weekly restore timer are enabled;
   restored disposable backups pass integrity, foreign-key, migration and schema
   checks. The restore unit's systemd exposure score was `0.8 SAFE` at rollout.
-- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 75 unit
+- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 87 unit
   tests, HTTP/FTS integration, moderation lifecycle, health alerting and compressed
   backup/restore rejection tests. A separate Chromium job checks five viewport widths,
-  primary 44px touch targets, keyboard focus, dynamic post/search flows, light/dark
-  WCAG A/AA Axe rules and JavaScript/network errors against disposable state.
+  primary 44px touch targets, keyboard focus, dynamic post/search/moderation flows,
+  light/dark WCAG A/AA Axe rules and JavaScript/network errors against disposable state.
 - The local/CI supply-chain gate rejects sensitive tracked filenames, high-confidence
   credential signatures without logging their values, mutable Action references and
   npm packages lacking exact versions, HTTPS resolution, SHA-512 integrity or license
@@ -69,6 +69,7 @@ sign-off remain incomplete.
 | S-16 | Low | Application method and canonical-path handling relies on the edge. | Unsupported methods are rejected live by nginx/Cloudflare, but the PHP controller treats every non-POST method as a read; `/index.php/...` also renders successfully. | Enforce `GET`, `HEAD`, and `POST` in PHP, reject path-info, and add canonical redirects/tests. |
 | S-17 | Low | Real-browser CI is implemented; human accessibility and repository enforcement remain. | Exact-version Playwright/Axe checks run against isolated state at 320–1440px, enforce WCAG A/AA rules in both themes, keyboard focus, touch targets and zero overflow. Automated review caught and fixed contrast and accessible-name defects. Lighthouse, 200% zoom, screen-reader sign-off and confirmation that the job is required by branch protection remain open. | Complete and record the manual matrix, add Lighthouse budgets, then require both CI jobs in GitHub branch protection after push. |
 | S-18 | Low | Indexed search removes routine full scans; a dedicated edge limit remains absent. | FTS5 uses generated prepared prefix terms capped at eight, indexed Unicode tokenization, bounded pagination and a published-only join. Hostile FTS grammar, trigger synchronization, query plans and restored-index integrity are tested. Distributed query floods can still create SQLite/CPU contention. | Add a search-specific Cloudflare rate limit and latency/SQLite-busy alert without logging visitor query text. |
+| S-19 | Medium | Explainable review catches common automation patterns; distributed and novel abuse remains. | Fixed Unicode/link/name/repetition/timing signals plus 24-hour keyed duplicate detection queue at score 40 without auto-deletion. Public surfaces exclude pending content, admin release is reversible and a ten-item pending backlog alerts. Content variation or distributed clients can evade application-local signals, while false positives wait for human review. | Add separate edge limits for post/search/API, measure false-positive and queue latency without message telemetry, then consider accessible risk-triggered Turnstile and expiring allow/block entries. |
 
 ## Controls verified
 
@@ -120,7 +121,7 @@ magnitude` for credential takeover, cross-vhost compromise and data loss.
 
 - Current MTTD after the monitoring rollout: about five minutes for public health,
   permission/release drift, SQLite integrity, backup/off-host/restore age, disk pressure and five admin
-  failures in 15 minutes and ten open abuse reports. Watched systemd failures dispatch
+  failures in 15 minutes, ten open abuse reports or ten pending messages. Watched systemd failures dispatch
   immediately. The existing Cloudflare bot checks traffic spikes and edge 5xx
   responses every five minutes.
 - Remaining alerts: distributed report-rate anomalies below the backlog threshold,
@@ -162,7 +163,7 @@ audited in a secretless read-only CI job and covered by dependency review/Depend
 
 This review did not access Cloudflare/GitHub dashboards, inspect message bodies,
 attempt password guessing, restore over the live database or perform a destructive
-exploit. Deployment applied the backed-up fifth schema migration after a disposable
-restore of the production snapshot proved SQLite/FTS integrity and compatibility. Passing this
+exploit. Deployment applies additive schema migrations only after a disposable
+restore of the production snapshot proves SQLite/FTS integrity and compatibility. Passing this
 review is not a guarantee of security; repeat it after architecture or data-flow
 changes.

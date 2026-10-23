@@ -18,11 +18,15 @@ criteria.
   OpenAPI plus bounded SQLite FTS5 search; responsive/accessibility foundations and
   real-Chromium Axe/reflow/keyboard checks from Stage 6; pinned CI,
   `security.txt`, a secret/supply-chain gate and hardened systemd jobs from Stage 8.
+- **Stage 4 foundation delivered:** normalized Unicode, bounded link/repetition/name
+  signals, 24-hour keyed duplicate detection and a weak timing signal feed an
+  explainable score. Risky submissions enter reversible human review, and a pending
+  backlog pages through the existing privacy-safe monitoring path.
 - **Next priority:** restore Google Drive capacity or replace the degraded second
   off-host provider, add a second offline recovery recipient plus a human off-host drill,
   an incident-response tabletop, manual screen-reader/200% zoom checks,
-  retention/export/erasure operations, dedicated API/search edge limits and
-  risk-scored submission heuristics that queue rather than delete content.
+  retention/export/erasure operations, dedicated post/API/search edge limits,
+  expiring allow/block controls and optional risk-triggered Turnstile.
 - **Still deferred:** Stage 7 community features and the explicitly deferred features
   at the end of this document. They must not outrun the remaining privacy, abuse and
   observability controls.
@@ -107,6 +111,13 @@ retention window; public pages disclose processing; scheduled minimisation is te
 
 **Exit:** legitimate shared-network users can post; scripted abuse is throttled or
 queued; no raw IP address is persisted by application code.
+
+**Current evidence:** fixed score reasons and weights are documented; the timing
+signal cannot queue alone; duplicate scoring and insertion are serialized; public
+read surfaces exclude pending data; browser automation proves human release; and ten
+pending messages trigger a fixed-code health alert. Disposable-pattern intelligence,
+risk-triggered Turnstile, dedicated edge buckets, signed report links and expiring
+allow/block lists remain before the full exit criterion.
 
 ## Stage 5 — API and data layer (P1)
 

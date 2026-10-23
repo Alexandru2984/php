@@ -68,6 +68,10 @@ error_reporting(E_ALL);
 ini_set('display_errors', $__isDev ? '1' : '0');
 ini_set('log_errors', '1');
 
+if (!class_exists('Normalizer')) {
+    configuration_error('PHP intl Normalizer support is required');
+}
+
 $__secret = env('APP_SECRET', '');
 if (!is_string($__secret) || preg_match('/\A[0-9a-f]{64}\z/i', $__secret) !== 1) {
     configuration_error('APP_SECRET must be a 32-byte hexadecimal value');
@@ -135,6 +139,7 @@ const MESSAGE_MAX         = 2000;
 const PER_PAGE            = 10;
 const RATE_LIMIT_SECONDS  = 15;   // min seconds between posts from one client
 const RATE_LIMIT_PER_HOUR = 12;   // max posts per client IP per hour
+const RISK_REVIEW_THRESHOLD = 40; // queue for human review; never auto-delete
 const ADMIN_IDLE_SECONDS  = 1800; // 30 minutes
 const ADMIN_MAX_SECONDS   = 43200; // 12 hours
 

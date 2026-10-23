@@ -15,6 +15,8 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
   requests and a published OpenAPI 3.1 contract.
 - Light/dark theme with a persisted toggle.
 - Privacy-minimal abuse reporting with a rate-limited admin review queue.
+- Explainable anti-abuse scoring that queues risky submissions for reversible human
+  review without exposing them in public HTML, search, feeds or API responses.
 - Five-state moderation, reversible actions and an append-only admin audit trail.
 - Responsive admin workspace with status totals, controlled reasons and security events.
 - Read-only JSON API: `/?format=json` (supports `q` and `page`).
@@ -32,6 +34,8 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 - Deletion is admin-only (bcrypt password) with failed-login throttling.
 - Reports never store a reporter identifier or arbitrary text; moderation cannot be
   triggered automatically by public reports.
+- Duplicate fingerprints and posting identifiers are purpose-separated, keyed and
+  detached after 24 hours; automated review never deletes content.
 - Strict Content-Security-Policy (no `unsafe-inline`), set at the nginx vhost.
 
 ## Structure
@@ -43,15 +47,17 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 - `../php_micutu_app_storage/database.sqlite` — the database (not web-served).
 
 ## Setup
-1. Copy `.env.example` to `.env` and fill in:
+1. Install PHP with PDO SQLite, mbstring and intl/Normalizer support, plus SQLite CLI
+   for the operational checks.
+2. Copy `.env.example` to `.env` and fill in:
    - `ADMIN_PASSWORD_HASH` — `php -r 'echo password_hash("pw", PASSWORD_DEFAULT), "\n";'`
    - `APP_SECRET` — `php -r 'echo bin2hex(random_bytes(32)), "\n";'`
    - `APP_ORIGIN` — the canonical HTTPS origin, without a trailing path.
-2. Ensure `../php_micutu_app_storage/` exists and is writable by the PHP-FPM
+3. Ensure `../php_micutu_app_storage/` exists and is writable by the PHP-FPM
    user (`www-data`): `chown micu:www-data` + `chmod 2770` on the directory.
-3. Apply database migrations before switching a release live:
+4. Apply database migrations before switching a release live:
    `php scripts/migrate.php`.
-4. Run `php scripts/maintenance.php` daily to prune expired pseudonymous security
+5. Run `php scripts/maintenance.php` daily to prune expired pseudonymous security
    records and optimize SQLite.
 
 ## Verification

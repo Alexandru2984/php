@@ -353,7 +353,197 @@ function moderation_states(): array
 /** Controlled moderation reasons; arbitrary admin notes are deliberately excluded. */
 function moderation_reasons(): array
 {
-    return ['spam', 'harassment', 'privacy', 'policy', 'requested', 'other', 'restored'];
+    return ['spam', 'harassment', 'privacy', 'policy', 'requested', 'risk', 'other', 'restored'];
+}
+
+/** Fixed, non-PII submission-risk reason codes. */
+function submission_risk_flags(): array
+{
+    return [
+        'duplicate',
+        'unicode_control',
+        'many_links',
+        'multiple_links',
+        'link_heavy',
+        'author_address',
+        'repeated_run',
+        'fast_submit',
+    ];
+}
+
+/** Purpose-separated keyed fingerprint used only for the 24-hour duplicate window. */
+function submission_fingerprint(string $content): string
+{
+    $normalized = Normalizer::normalize($content, Normalizer::FORM_C);
+    if (!is_string($normalized)) {
+        throw new InvalidArgumentException('Invalid submission encoding');
+    }
+    return hash_hmac('sha256', "submission-content\0" . $normalized, APP_SECRET);
+}
+
+/**
+ * Compute an explainable, bounded risk score. Flags are fixed codes and do not
+ * contain submitted text. This function never changes moderation state itself.
+ *
+ * @return array{score:int, flags:list<string>, fingerprint:string}
+ */
+function assess_submission_risk(
+    PDO $pdo,
+    string $author,
+    string $content,
+    array $validationSignals = [],
+    ?int $formAgeSeconds = null,
+    ?int $now = null
+): array {
+    $allowedSignals = submission_risk_flags();
+    foreach ($validationSignals as $signal) {
+        if (!is_string($signal) || !in_array($signal, $allowedSignals, true)) {
+            throw new InvalidArgumentException('Invalid submission risk signal');
+        }
+    }
+    if ($formAgeSeconds !== null && ($formAgeSeconds < 0 || $formAgeSeconds > 86400)) {
+        throw new InvalidArgumentException('Invalid form age');
+    }
+
+    $now ??= time();
+    $fingerprint = submission_fingerprint($content);
+    $score = 0;
+    $flags = [];
+    $add = static function (string $flag, int $points) use (&$score, &$flags): void {
+        if (!isset($flags[$flag])) {
+            $flags[$flag] = true;
+            $score += $points;
+        }
+    };
+
+    $duplicate = $pdo->prepare(
+        "SELECT 1 FROM messages
+         WHERE content_fingerprint = :fingerprint
+           AND created_at >= datetime(:cutoff, 'unixepoch')
+         LIMIT 1"
+    );
+    $duplicate->execute([
+        ':fingerprint' => $fingerprint,
+        ':cutoff' => $now - 86400,
+    ]);
+    if ($duplicate->fetchColumn() !== false) {
+        $add('duplicate', 50);
+    }
+
+    if (in_array('unicode_control', $validationSignals, true)) {
+        $add('unicode_control', 45);
+    }
+
+    $linkCount = preg_match_all(
+        "~(?:https?://|www\\.)[^\\s<>\"']+~iu",
+        $content,
+        $linkMatches
+    );
+    $linkCount = $linkCount === false ? 0 : $linkCount;
+    if ($linkCount >= 3) {
+        $add('many_links', 45);
+    } elseif ($linkCount === 2) {
+        $add('multiple_links', 25);
+    }
+    if ($linkCount > 0) {
+        $linkCharacters = 0;
+        foreach ($linkMatches[0] as $link) {
+            $linkCharacters += mb_strlen($link, 'UTF-8');
+        }
+        $contentLength = max(1, mb_strlen($content, 'UTF-8'));
+        if ($linkCharacters / $contentLength >= 0.55) {
+            $add('link_heavy', 25);
+        }
+    }
+
+    if (preg_match("~(?:https?://|www\\.)|(?:[a-z0-9-]+\\.)+[a-z]{2,}~iu", $author) === 1) {
+        $add('author_address', 20);
+    }
+    if (preg_match('/([\p{L}\p{N}\p{P}])\1{11,}/u', $content) === 1) {
+        $add('repeated_run', 20);
+    }
+    if ($formAgeSeconds !== null && $formAgeSeconds <= 2) {
+        $add('fast_submit', 10);
+    }
+
+    return [
+        'score' => min(100, $score),
+        'flags' => array_keys($flags),
+        'fingerprint' => $fingerprint,
+    ];
+}
+
+/**
+ * Persist a validated submission and apply only a reversible pending/public choice.
+ * Duplicate assessment and insertion are serialized to avoid a race between posts.
+ *
+ * @return array{id:int, status:string, score:int, flags:list<string>}
+ */
+function create_submission(
+    PDO $pdo,
+    string $author,
+    string $content,
+    string $ipHash,
+    array $validationSignals = [],
+    ?int $formAgeSeconds = null,
+    ?int $now = null
+): array {
+    if ($author === '' || $content === ''
+        || preg_match('/\A[0-9a-f]{64}\z/D', $ipHash) !== 1) {
+        throw new InvalidArgumentException('Invalid validated submission');
+    }
+    $now ??= time();
+
+    $pdo->exec('BEGIN IMMEDIATE');
+    try {
+        $risk = assess_submission_risk(
+            $pdo,
+            $author,
+            $content,
+            $validationSignals,
+            $formAgeSeconds,
+            $now
+        );
+        $queued = $risk['score'] >= RISK_REVIEW_THRESHOLD;
+        $status = $queued ? 'pending' : 'published';
+        $stmt = $pdo->prepare(
+            "INSERT INTO messages
+                (author, content, ip_hash, created_at, status, moderation_reason,
+                 content_fingerprint, risk_score, risk_flags)
+             VALUES
+                (:author, :content, :ip_hash, datetime(:created, 'unixepoch'), :status,
+                 :reason, :fingerprint, :score, :flags)"
+        );
+        $stmt->execute([
+            ':author' => $author,
+            ':content' => $content,
+            ':ip_hash' => $ipHash,
+            ':created' => $now,
+            ':status' => $status,
+            ':reason' => $queued ? 'risk' : null,
+            ':fingerprint' => $risk['fingerprint'],
+            ':score' => $risk['score'],
+            ':flags' => json_encode($risk['flags'], JSON_THROW_ON_ERROR),
+        ]);
+        $messageId = (int) $pdo->lastInsertId();
+        if ($queued) {
+            security_event($pdo, 'message.queued', 'success', null, $messageId, $now);
+        }
+        $pdo->exec('COMMIT');
+        return [
+            'id' => $messageId,
+            'status' => $status,
+            'score' => $risk['score'],
+            'flags' => $risk['flags'],
+        ];
+    } catch (Throwable $e) {
+        try {
+            $pdo->exec('ROLLBACK');
+        } catch (Throwable) {
+            // Preserve the original exception.
+        }
+        throw $e;
+    }
 }
 
 /** Read and validate a scalar enum input without coercion. */
@@ -608,8 +798,9 @@ function prune_security_records(PDO $pdo, ?int $now = null): array
     // Posting limits only need a one-hour identifier. Keep a 24-hour margin for
     // troubleshooting, then irreversibly detach the keyed identifier from content.
     $identifiers = $pdo->prepare(
-        "UPDATE messages SET ip_hash = NULL
-         WHERE ip_hash IS NOT NULL AND created_at < datetime(:cutoff, 'unixepoch')"
+        "UPDATE messages SET ip_hash = NULL, content_fingerprint = NULL
+         WHERE (ip_hash IS NOT NULL OR content_fingerprint IS NOT NULL)
+           AND created_at < datetime(:cutoff, 'unixepoch')"
     );
     $identifiers->execute([':cutoff' => $now - 86400]);
     return [
@@ -645,7 +836,8 @@ function rate_limit_check(PDO $pdo): ?string
 }
 
 /**
- * Validate + normalise a submitted message. Returns [author, content, error].
+ * Validate + normalise a submitted message.
+ * Returns [author, content, error, fixed risk signals].
  * On error, author/content are empty and error is a user-facing string.
  */
 function validate_submission(array $post): array
@@ -653,25 +845,38 @@ function validate_submission(array $post): array
     $rawAuthor = string_input($post, 'author');
     $rawContent = string_input($post, 'message');
     if ($rawContent === null || ($rawAuthor === null && array_key_exists('author', $post))) {
-        return ['', '', 'Invalid form data. Please try again.'];
+        return ['', '', 'Invalid form data. Please try again.', []];
     }
 
-    $author  = trim($rawAuthor ?? '');
-    $content = trim($rawContent);
+    $normalizedAuthor = Normalizer::normalize($rawAuthor ?? '', Normalizer::FORM_C);
+    $normalizedContent = Normalizer::normalize($rawContent, Normalizer::FORM_C);
+    if (!is_string($normalizedAuthor) || !is_string($normalizedContent)) {
+        return ['', '', 'Invalid form data. Please try again.', []];
+    }
+    $author = trim($normalizedAuthor);
+    $content = trim($normalizedContent);
 
-    // Collapse Windows newlines and strip other control characters.
+    // Collapse Windows newlines and strip controls, including invisible Unicode
+    // formatting characters that can visually spoof moderator-facing text.
+    $signals = [];
+    $unicodeControls = '/[\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2060}-\x{206F}\x{FEFF}]/u';
+    if (preg_match($unicodeControls, $author . $content) === 1) {
+        $signals[] = 'unicode_control';
+    }
     $content = str_replace("\r\n", "\n", $content);
     $content = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $content) ?? $content;
     $author  = preg_replace('/[\x00-\x1F\x7F]/u', '', $author) ?? $author;
+    $content = preg_replace($unicodeControls, '', $content) ?? $content;
+    $author = preg_replace($unicodeControls, '', $author) ?? $author;
 
     if ($content === '') {
-        return ['', '', 'Message content cannot be empty.'];
+        return ['', '', 'Message content cannot be empty.', []];
     }
     if (mb_strlen($content) > MESSAGE_MAX) {
-        return ['', '', 'Message is too long (max ' . MESSAGE_MAX . ' characters).'];
+        return ['', '', 'Message is too long (max ' . MESSAGE_MAX . ' characters).', []];
     }
     if (mb_strlen($author) > AUTHOR_MAX) {
-        return ['', '', 'Name is too long (max ' . AUTHOR_MAX . ' characters).'];
+        return ['', '', 'Name is too long (max ' . AUTHOR_MAX . ' characters).', []];
     }
     if ($author === '') {
         $author = 'Anonymous';
@@ -679,7 +884,7 @@ function validate_submission(array $post): array
     // Clamp runaway blank lines.
     $content = preg_replace("/\n{4,}/", "\n\n\n", $content) ?? $content;
 
-    return [$author, $content, null];
+    return [$author, $content, null, $signals];
 }
 
 /** Deterministic avatar palette index (0-11) from a display name. */

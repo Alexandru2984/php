@@ -606,6 +606,26 @@ body {
     white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
+.risk-summary {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin: 0 0 12px;
+}
+.risk-summary strong,
+.risk-summary span {
+    padding: 3px 8px;
+    border: 1px solid var(--border-strong);
+    border-radius: 999px;
+    background: var(--surface-2);
+    color: var(--text-muted);
+    font-size: .68rem;
+}
+.risk-summary strong {
+    border-color: var(--primary);
+    color: var(--primary-text);
+}
 .status-pill {
     display: inline-flex;
     align-items: center;

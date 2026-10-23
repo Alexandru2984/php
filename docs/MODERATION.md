@@ -13,16 +13,23 @@ seven-day limiter retention policy. Closed reports are deleted after 90 days by 
 maintenance job. The append-only admin audit uses a stable logical `local-admin`
 actor derived independently of any network address.
 
+New submissions also receive fixed, explainable risk reasons. A purpose-separated
+content HMAC supports 24-hour duplicate detection; it is detached with the posting
+identifier after that window. Scores and fixed reasons contain no submitted text.
+See [explainable submission review](ANTI_ABUSE.md) for weights and limitations.
+
 ## State model
 
 ```text
                  ┌─────────┐
-new message ────>│published│<──────────────┐
+new low-risk ───>│published│<──────────────┐
                  └────┬────┘               │ restore
                       │ admin + reason      │
           ┌───────────┼───────────┬────────┴─┐
           v           v           v          v
        pending      hidden      spam      deleted
+          ^
+          └──────── new score >= 40
 ```
 
 Only `published` messages appear in HTML, JSON and RSS. Every successful state change
@@ -46,6 +53,8 @@ small number of reports from becoming a censorship primitive.
 - Five reports per client per hour starts a one-hour lockout. Ten simultaneous open
   reports fail the five-minute health probe and page the existing Telegram channel
   using only `component=moderation reason=open-report-threshold`.
+- Ten simultaneous pending messages likewise page with only
+  `component=moderation reason=pending-message-threshold`.
 - Login, blocked actions and review outcomes remain visible in bounded security logs;
   alert payloads never contain the author, message, report category or identifiers.
 
@@ -78,8 +87,8 @@ invented from source data.
 
 ### Detection and response
 
-Login abuse and a ten-report backlog are detected within the five-minute health-probe
-target. Systemd failure/recovery uses the existing pager. Follow
+Login abuse and a ten-report or ten-pending-message backlog are detected within the
+five-minute health-probe target. Systemd failure/recovery uses the existing pager. Follow
 [the incident-response runbook](INCIDENT_RESPONSE.md) for credential containment,
 session invalidation, evidence preservation and recovery. A formal human tabletop and
 credential-rotation drill are still outstanding.
@@ -95,11 +104,12 @@ remains self-hosted.
 ## Verification and rollback
 
 Unit tests prove state transitions, identifier detachment, report lifecycle,
-retention and append-only triggers. HTTP tests exercise the anonymous-to-admin flow
-through real cookies, CSRF and redirects. The health smoke test proves backlog alert
+retention, risk scoring and append-only triggers. HTTP and browser tests exercise the
+anonymous-to-admin flow through real cookies, CSRF and redirects. The health smoke test proves backlog alert
 generation without using production data.
 
-Migration `004_moderation_audit.sql` only adds columns, tables, indexes and triggers;
+Migrations `004_moderation_audit.sql` and `006_submission_risk.sql` only add columns,
+tables, indexes and triggers;
 the preceding release continues to read the database if the application symlink is
 rolled back. Do not remove the migration record or restore an older database over a
 live SQLite writer.
