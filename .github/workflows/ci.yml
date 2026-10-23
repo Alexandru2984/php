@@ -27,7 +27,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends \
-            curl gzip php-cli php-mbstring php-sqlite3 php-xml shellcheck sqlite3
+            curl gzip php-cli php-mbstring php-sqlite3 php-xml ripgrep shellcheck sqlite3
 
       - name: Run verification suite
         run: bash scripts/ci.sh

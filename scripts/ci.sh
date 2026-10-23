@@ -15,6 +15,7 @@ node --check assets/theme-init.js
 php -r '$css=file_get_contents("assets/style.css"); if(substr_count($css,"{")!==substr_count($css,"}")){fwrite(STDERR,"Unbalanced CSS braces\n");exit(1);} echo "CSS braces balanced.\n";'
 
 shellcheck -x scripts/*.sh tests/*.sh ops/scripts/*.sh
+bash scripts/security-scan.sh
 php tests/run.php
 php tests/openapi-smoke.php
 bash tests/http-smoke.sh
@@ -23,6 +24,7 @@ bash tests/restore-drill-smoke.sh
 bash tests/offsite-backup-smoke.sh
 bash tests/healthcheck-smoke.sh
 bash tests/ops-smoke.sh
+bash tests/security-scan-smoke.sh
 if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     git diff --check
 fi

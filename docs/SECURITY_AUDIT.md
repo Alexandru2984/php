@@ -42,6 +42,10 @@ sign-off remain incomplete.
   backup/restore rejection tests. A separate Chromium job checks five viewport widths,
   primary 44px touch targets, keyboard focus, dynamic post/search flows, light/dark
   WCAG A/AA Axe rules and JavaScript/network errors against disposable state.
+- The local/CI supply-chain gate rejects sensitive tracked filenames, high-confidence
+  credential signatures without logging their values, mutable Action references and
+  npm packages lacking exact versions, HTTPS resolution, SHA-512 integrity or license
+  metadata. Adversarial fixtures prove the blocking cases.
 
 ## Findings
 

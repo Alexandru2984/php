@@ -17,7 +17,7 @@ criteria.
   a sessionless versioned read API, signed cursor pagination, strong ETags and
   OpenAPI plus bounded SQLite FTS5 search; responsive/accessibility foundations and
   real-Chromium Axe/reflow/keyboard checks from Stage 6; pinned CI,
-  `security.txt` and hardened systemd jobs from Stage 8.
+  `security.txt`, a secret/supply-chain gate and hardened systemd jobs from Stage 8.
 - **Next priority:** restore Google Drive capacity or replace the degraded second
   off-host provider, add a second offline recovery recipient plus a human off-host drill,
   an incident-response tabletop, manual screen-reader/200% zoom checks,
