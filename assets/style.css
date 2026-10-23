@@ -89,6 +89,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 html { -webkit-text-size-adjust: 100%; scroll-padding-top: 16px; }
 
@@ -334,6 +335,52 @@ body {
     border: 1px solid var(--border-strong); box-shadow: none; width: auto;
 }
 .btn.secondary:hover { filter: none; border-color: var(--primary); color: var(--primary); }
+
+.draft-tools {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 4px 12px;
+    margin: -2px 0 16px;
+    color: var(--text-muted);
+    font-size: .78rem;
+}
+.draft-opt-in {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    color: var(--text);
+    font-weight: 650;
+    cursor: pointer;
+}
+.draft-opt-in input { width: 18px; height: 18px; accent-color: var(--primary); }
+.draft-privacy { color: var(--text-faint); text-align: right; }
+.draft-delete { justify-self: start; padding-left: 0; }
+.draft-status { min-height: 1.3em; color: var(--text-faint); text-align: right; }
+.compose-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; }
+.preview-toggle { min-width: 112px; }
+.message-preview {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+}
+.preview-label {
+    margin: 0 0 8px;
+    color: var(--text-faint);
+    font-size: .72rem;
+    font-weight: 800;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+.preview-card {
+    padding: 14px;
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+}
+.preview-author { margin: 0 0 6px; font-size: .82rem; font-weight: 750; }
+.preview-body { margin: 0; color: var(--text-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ---- Feed ---- */
 .section-title {
@@ -787,6 +834,10 @@ body {
     .moderation-control .btn { width: 100%; }
     .message-actions { gap: 6px; }
     .message-primary-actions { gap: 6px; }
+    .draft-tools { grid-template-columns: 1fr; }
+    .draft-privacy, .draft-status { text-align: left; }
+    .compose-actions { grid-template-columns: 1fr; }
+    .preview-toggle { width: 100%; }
 }
 
 @media (max-width: 600px) {

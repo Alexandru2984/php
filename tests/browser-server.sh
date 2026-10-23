@@ -13,6 +13,7 @@ cleanup() {
         wait "${server_pid}" 2>/dev/null || true
     fi
     if [[ -n "${tmp_dir}" && "${tmp_dir}" == /tmp/* ]]; then
+        chmod -R u+w -- "${app_dir}" 2>/dev/null || true
         rm -rf -- "${tmp_dir}"
     fi
 }

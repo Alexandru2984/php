@@ -22,6 +22,9 @@ criteria.
   signals, 24-hour keyed duplicate detection and a weak timing signal feed an
   explainable score. Risky submissions enter reversible human review, and a pending
   backlog pages through the existing privacy-safe monitoring path.
+- **Stage 7 foundation delivered:** privacy-safe sharing plus opt-in, expiring local
+  drafts and a text-only preview. No draft content crosses the network before the
+  visitor submits the normal form.
 - **Next priority:** restore Google Drive capacity or replace the degraded second
   off-host provider, add a second offline recovery recipient plus a human off-host drill,
   an incident-response tabletop, manual screen-reader/200% zoom checks,
@@ -164,8 +167,9 @@ zoom and a named screen-reader/manual pass remain before the full exit criterion
   share links.
 - Author edit/delete window using one-time recovery capability tokens (hashed at
   rest), with moderation overrides and audit history.
-- Draft autosave stored locally, preview, Markdown subset rendered through a strict
-  allow-list, and link safety (`rel`, scheme validation).
+- Opt-in expiring draft autosave stored locally and a plain-text preview are delivered.
+  A future Markdown subset still requires a strict allow-list and link safety (`rel`,
+  scheme validation).
 - Optional notification subscriptions with verified opt-in, rate limits and simple
   unsubscribe.
 

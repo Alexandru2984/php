@@ -74,6 +74,36 @@ incomplete.
 | S-19 | Medium | Explainable review catches common automation patterns; distributed and novel abuse remains. | Fixed Unicode/link/name/repetition/timing signals plus 24-hour keyed duplicate detection queue at score 40 without auto-deletion. Public surfaces exclude pending content, admin release is reversible and a ten-item pending backlog alerts. Content variation or distributed clients can evade application-local signals, while false positives wait for human review. | Add separate edge limits for post/search/API, measure false-positive and queue latency without message telemetry, then consider accessible risk-triggered Turnstile and expiring allow/block entries. |
 | S-20 | Low | Public discovery is explicit; search-console governance remains manual. | Sitemap, RSS and structured metadata select published records only; search/admin views are noindex, clean message paths reject mixed parameters, legacy links redirect without sessions, unavailable permalinks return 404, outputs are escaped and production health probes a live permalink. Sharing requires a visitor click, exposes only a canonical URL plus generic title and loads no social SDK. Search-engine recrawl/removal, ownership alerts and erasure workflows are not automated. | Verify both major search consoles, monitor coverage/rich-result errors, document cache purge and URL removal, and complete the data-subject workflow. |
 | S-21 | High | The active Telegram bot token exists in local agent-session history. | A fingerprint-only comparison found the current token in three local history files. Two Codex histories were mode `0664`; they and the containing session directories are now owner-only (`0600`/`0700`). The secret remains valid and present in retained history, so permission hardening limits local exposure but does not revoke copies. The token was not added to this repository. | Regenerate the token through BotFather, atomically update the root-owned bot credential, restart and verify the allow-listed chat, then redact or securely remove historical copies under an approved retention plan. Enforce owner-only creation permissions for all future agent transcripts. |
+| S-22 | Low | Local drafts improve resilience but can leave message text on a shared device. | Draft storage is off by default, explicitly device-scoped in the UI, bounded to server field limits, expires after 24 hours and is deleted after successful submission or on request. The text-only preview uses DOM `textContent`; browser tests prove markup does not create elements or execute. A user with access to the same unlocked browser profile can still read an opted-in draft. | Keep opt-in off by default, do not sync drafts server-side, retain the clear control and re-evaluate before adding accounts, cloud sync or longer retention. |
+
+## CISO review: local draft and preview
+
+**Date:** 2026-10-24
+
+- **Threat model:** the top risks are information disclosure to another user of the
+  same browser profile (medium likelihood/low impact), DOM injection through preview
+  content (low/high), and storage exhaustion or corrupt client state (low/low).
+  Opt-in storage, strict length/type/expiry validation, `textContent`, explicit
+  deletion and exception-safe feature detection mitigate them.
+- **Blast radius:** compromise is limited to the single opted-in name/message in one
+  browser origin; no server database, other visitor, credential, network identifier
+  or moderation record is reachable through this feature. A FAIR dollar estimate is
+  not defensible without incident-frequency and response-cost inputs.
+- **Detection:** seven Chromium scenarios now detect persistence, 24-hour expiry,
+  deletion, post-submit clearing, XSS regression, accessibility and mobile overflow
+  before release. Client storage is intentionally not telemetered, so server-side MTTD
+  for a browser-specific failure is user-report dependent.
+- **Response:** disable by reverting the feature commit and deploying the preceding
+  immutable release. Browser-held drafts cannot be remotely erased; the visible
+  delete control and 24-hour expiry are therefore mandatory containment controls.
+- **Regulatory:** an opted-in draft may contain personal data, but remains on the data
+  subject's device and is not received by the operator before form submission. Any
+  qualifying server-side breach retains the GDPR 72-hour assessment window.
+- **Vendors and supply chain:** no package, vendor, API, cookie, permission or new
+  network recipient is added.
+
+**Verdict:** 🟢 SHIP. Residual shared-device exposure is clearly disclosed and under
+the visitor's control.
 
 ## Controls verified
 

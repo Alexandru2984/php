@@ -1,5 +1,5 @@
-/* Guestbook client behaviour — theme, counters, sharing, confirmations and
-   auto-dismissing flash. No inline handlers (CSP-safe). */
+/* Guestbook client behaviour — theme, counters, private drafts, safe previews,
+   sharing, confirmations and auto-dismissing flash. No inline handlers. */
 (function () {
     'use strict';
 
@@ -40,6 +40,154 @@
         el.addEventListener('input', update);
         update();
     });
+
+    // ---- Opt-in local drafts and inert text preview ---------------------
+    var composeForm = document.querySelector('[data-compose-form]');
+    if (composeForm) {
+        var authorInput = composeForm.querySelector('#author');
+        var messageInput = composeForm.querySelector('#message');
+        var draftTools = composeForm.querySelector('[data-draft-tools]');
+        var draftOptIn = composeForm.querySelector('[data-draft-opt-in]');
+        var draftDelete = composeForm.querySelector('[data-draft-delete]');
+        var draftStatus = composeForm.querySelector('[data-draft-status]');
+        var previewToggle = composeForm.querySelector('[data-preview-toggle]');
+        var preview = composeForm.querySelector('[data-message-preview]');
+        var previewAuthor = composeForm.querySelector('[data-preview-author]');
+        var previewBody = composeForm.querySelector('[data-preview-body]');
+        var draftKey = 'gb-compose-draft-v1';
+        var draftLifetime = 24 * 60 * 60 * 1000;
+        var saveTimer = null;
+
+        function announceDraft(message) {
+            if (!draftStatus) return;
+            draftStatus.textContent = '';
+            window.requestAnimationFrame(function () { draftStatus.textContent = message; });
+        }
+
+        function removeDraft() {
+            try { localStorage.removeItem(draftKey); } catch (e) {}
+            if (draftDelete) draftDelete.hidden = true;
+        }
+
+        function storageAvailable() {
+            try {
+                var probe = draftKey + '-probe';
+                localStorage.setItem(probe, '1');
+                localStorage.removeItem(probe);
+                return true;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        function updatePreview() {
+            if (!previewAuthor || !previewBody || !authorInput || !messageInput) return;
+            previewAuthor.textContent = authorInput.value.trim() || 'Anonymous';
+            previewBody.textContent = messageInput.value || 'Start typing to preview your message.';
+        }
+
+        function validDraft(value, now) {
+            return value
+                && typeof value === 'object'
+                && typeof value.author === 'string'
+                && typeof value.message === 'string'
+                && Number.isInteger(value.savedAt)
+                && Number.isInteger(value.expiresAt)
+                && value.savedAt <= now + (5 * 60 * 1000)
+                && value.expiresAt > now
+                && value.expiresAt <= value.savedAt + draftLifetime
+                && authorInput
+                && messageInput
+                && value.author.length <= (parseInt(authorInput.maxLength, 10) || 60)
+                && value.message.length <= (parseInt(messageInput.maxLength, 10) || 2000);
+        }
+
+        function saveDraft() {
+            if (!draftOptIn || !draftOptIn.checked || !authorInput || !messageInput) return;
+            var now = Date.now();
+            var value = {
+                author: authorInput.value,
+                message: messageInput.value,
+                savedAt: now,
+                expiresAt: now + draftLifetime,
+            };
+            try {
+                localStorage.setItem(draftKey, JSON.stringify(value));
+                if (draftDelete) draftDelete.hidden = false;
+                announceDraft('Draft saved on this device.');
+            } catch (e) {
+                draftOptIn.checked = false;
+                announceDraft('Draft storage is unavailable in this browser.');
+            }
+        }
+
+        function scheduleDraftSave() {
+            updatePreview();
+            if (!draftOptIn || !draftOptIn.checked) return;
+            if (saveTimer !== null) window.clearTimeout(saveTimer);
+            saveTimer = window.setTimeout(saveDraft, 250);
+        }
+
+        if (previewToggle && preview) {
+            previewToggle.hidden = false;
+            previewToggle.addEventListener('click', function () {
+                var opening = preview.hidden;
+                preview.hidden = !opening;
+                previewToggle.setAttribute('aria-expanded', opening ? 'true' : 'false');
+                previewToggle.textContent = opening ? 'Hide preview' : 'Preview';
+                if (opening) updatePreview();
+            });
+        }
+
+        if (storageAvailable() && draftTools && draftOptIn && draftDelete) {
+            draftTools.hidden = false;
+            if (composeForm.hasAttribute('data-clear-local-draft')) removeDraft();
+
+            var storedDraft = null;
+            try {
+                var encodedDraft = localStorage.getItem(draftKey);
+                if (encodedDraft !== null) storedDraft = JSON.parse(encodedDraft);
+            } catch (e) {
+                removeDraft();
+            }
+
+            var now = Date.now();
+            if (storedDraft !== null && validDraft(storedDraft, now)) {
+                draftOptIn.checked = true;
+                draftDelete.hidden = false;
+                if (authorInput.value === '' && messageInput.value === '') {
+                    authorInput.value = storedDraft.author;
+                    messageInput.value = storedDraft.message;
+                    announceDraft('Draft restored from this device.');
+                }
+            } else if (storedDraft !== null) {
+                removeDraft();
+            }
+
+            draftOptIn.addEventListener('change', function () {
+                if (draftOptIn.checked) saveDraft();
+                else {
+                    removeDraft();
+                    announceDraft('Draft saving turned off.');
+                }
+            });
+            draftDelete.addEventListener('click', function () {
+                if (saveTimer !== null) window.clearTimeout(saveTimer);
+                draftOptIn.checked = false;
+                removeDraft();
+                announceDraft('Saved draft deleted. Your current text is unchanged.');
+            });
+            authorInput.addEventListener('input', scheduleDraftSave);
+            messageInput.addEventListener('input', scheduleDraftSave);
+            composeForm.addEventListener('submit', function () {
+                if (saveTimer !== null) window.clearTimeout(saveTimer);
+                saveDraft();
+            });
+        } else if (draftTools) {
+            draftTools.hidden = true;
+        }
+        updatePreview();
+    }
 
     // ---- Delete confirmation --------------------------------------------
     document.querySelectorAll('form[data-confirm]').forEach(function (form) {

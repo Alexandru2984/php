@@ -13,6 +13,7 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 - Clean permanent message links (`/messages/ID`) and a cache-aware RSS 2.0 feed
   (`/feed.xml`).
 - Progressive native sharing with a local clipboard fallback and no third-party SDK.
+- Opt-in 24-hour local drafts and a text-only preview that never renders visitor HTML.
 - Technical SEO with stable canonical URLs, versioned robots policy, a sessionless
   XML sitemap/RSS feed, social metadata and forum-posting structured data.
 - Sessionless `/api/v1/messages` with signed cursor pagination, ETags, conditional

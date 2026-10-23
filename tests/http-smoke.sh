@@ -248,6 +248,9 @@ fi
 [[ ! -s "${legacy_permalink_body}" ]]
 permalink_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/messages/${message_id}")"
 grep --quiet 'Hello from the isolated smoke test' <<<"${permalink_html}"
+grep --fixed-strings --quiet 'data-compose-form data-clear-local-draft="true"' <<<"${permalink_html}"
+grep --fixed-strings --quiet 'data-draft-opt-in' <<<"${permalink_html}"
+grep --fixed-strings --quiet 'data-preview-toggle' <<<"${permalink_html}"
 grep --quiet 'No free-text report or reporter identifier is stored.' <<<"${permalink_html}"
 grep --fixed-strings --quiet '<title>Message by Alice · Micuțu Guestbook</title>' <<<"${permalink_html}"
 grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}/messages/${message_id}\">" <<<"${permalink_html}"

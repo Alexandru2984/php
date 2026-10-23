@@ -57,6 +57,7 @@ test('supported viewport widths reflow without horizontal overflow', async ({ pa
         '.compose .input',
         '.compose .textarea',
         '.compose .btn',
+        '.draft-opt-in',
         '.search-input',
         '.search-submit',
         '.admin > summary',
@@ -105,9 +106,13 @@ test('keyboard navigation, theme persistence and posting work end to end', async
   await author.fill('Browser check');
   await message.fill('Responsive accessibility flow');
   await expect(page.locator('#msg-counter')).toHaveText('29 / 2000');
+  await page.getByRole('checkbox', { name: 'Save a draft on this device' }).check();
+  await expect(page.locator('[data-draft-status]')).toHaveText('Draft saved on this device.');
+  expect(await page.evaluate(() => localStorage.getItem('gb-compose-draft-v1'))).not.toBeNull();
   await page.getByRole('button', { name: 'Post message' }).click();
 
   await expect(page.getByRole('status')).toContainText('Message posted!');
+  expect(await page.evaluate(() => localStorage.getItem('gb-compose-draft-v1'))).toBeNull();
   await expect(page.getByText('Responsive accessibility flow', { exact: true })).toBeVisible();
   for (const target of [page.locator('.permalink'), page.locator('.report-menu > summary')]) {
     const box = await target.boundingBox();
@@ -120,6 +125,60 @@ test('keyboard navigation, theme persistence and posting work end to end', async
   await expect(page.getByRole('heading', { level: 2, name: 'Search results' })).toBeVisible();
   await expect(page.getByText('Responsive accessibility flow', { exact: true })).toBeVisible();
 
+  expect(runtimeFailures).toEqual([]);
+});
+
+test('opt-in drafts expire locally and preview treats markup as text', async ({ page }) => {
+  const runtimeFailures = observeRuntimeFailures(page);
+  await page.setViewportSize({ width: 320, height: 812 });
+  await page.goto('/');
+
+  const author = page.getByRole('textbox', { name: /Name/ });
+  const message = page.getByRole('textbox', { name: 'Message' });
+  const optIn = page.getByRole('checkbox', { name: 'Save a draft on this device' });
+  const hostileName = '<img src=x onerror="window.__draftExecuted=true">';
+  const hostileMessage = '<script>window.__draftExecuted=true</script>\nStill plain text.';
+
+  await author.fill(hostileName);
+  await message.fill(hostileMessage);
+  expect(await page.evaluate(() => localStorage.getItem('gb-compose-draft-v1'))).toBeNull();
+  await optIn.check();
+  await expect(page.locator('[data-draft-status]')).toHaveText('Draft saved on this device.');
+
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('gb-compose-draft-v1')));
+  expect(stored.author).toBe(hostileName);
+  expect(stored.message).toBe(hostileMessage);
+  expect(stored.expiresAt - stored.savedAt).toBe(24 * 60 * 60 * 1000);
+
+  await page.reload();
+  await expect(author).toHaveValue(hostileName);
+  await expect(message).toHaveValue(hostileMessage);
+  await expect(optIn).toBeChecked();
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  const preview = page.getByRole('region', { name: 'Private preview' });
+  await expect(preview).toBeVisible();
+  await expect(preview.locator('[data-preview-author]')).toHaveText(hostileName);
+  await expect(preview.locator('[data-preview-body]')).toHaveText(hostileMessage);
+  await expect(preview.locator('script, img')).toHaveCount(0);
+  expect(await page.evaluate(() => window.__draftExecuted)).toBeUndefined();
+
+  await page.getByRole('button', { name: 'Delete saved draft' }).click();
+  expect(await page.evaluate(() => localStorage.getItem('gb-compose-draft-v1'))).toBeNull();
+  await expect(message).toHaveValue(hostileMessage);
+
+  await page.evaluate(() => {
+    const now = Date.now();
+    localStorage.setItem('gb-compose-draft-v1', JSON.stringify({
+      author: 'Expired',
+      message: 'Must not return',
+      savedAt: now - (25 * 60 * 60 * 1000),
+      expiresAt: now - (60 * 60 * 1000),
+    }));
+  });
+  await page.reload();
+  await expect(author).toHaveValue('');
+  await expect(message).toHaveValue('');
+  expect(await page.evaluate(() => localStorage.getItem('gb-compose-draft-v1'))).toBeNull();
   expect(runtimeFailures).toEqual([]);
 });
 

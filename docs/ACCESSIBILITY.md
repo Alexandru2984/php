@@ -12,6 +12,8 @@ production configuration, messages or credentials. One Chromium worker verifies:
   targets;
 - skip-link destination, visible keyboard focus and a usable focus sequence;
 - persisted light/dark selection, character counter, posting and indexed search;
+- keyboard-accessible opt-in draft controls, 24-hour expiry, deletion and text-only
+  preview with hostile-markup regression coverage;
 - no browser console, uncaught page or failed network errors in those flows;
 - WCAG 2.0/2.1/2.2 A/AA rules detectable by Axe in light and dark modes; and
 - the reduced-motion override for animated/transitioning content.

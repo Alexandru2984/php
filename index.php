@@ -402,6 +402,7 @@ if ($method === 'POST') {
         );
         $_SESSION['last_post_at'] = $submittedAt;
         $_SESSION['compose_issued_at'] = $submittedAt;
+        $_SESSION['clear_compose_draft'] = true;
         flash_set('success', $result['status'] === 'pending'
             ? 'Message received and queued for moderator review.'
             : 'Message posted!');
@@ -618,6 +619,8 @@ function feed_url(int $page, string $q): string
 
 $flash = flash_get();
 $oldInput = old_input_get();
+$clearComposeDraft = !empty($_SESSION['clear_compose_draft']);
+unset($_SESSION['clear_compose_draft']);
 $statusLabels = [
     'pending' => 'Pending',
     'published' => 'Published',
@@ -739,7 +742,7 @@ $reportLabels = [
         </nav>
         <?php endif; ?>
 
-        <form method="POST" class="compose">
+        <form method="POST" class="compose" data-compose-form<?php echo $clearComposeDraft ? ' data-clear-local-draft="true"' : ''; ?>>
             <?php echo csrf_field(); ?>
             <input type="hidden" name="action" value="post">
             <input type="text" name="website" class="hp" tabindex="-1" autocomplete="off" aria-hidden="true">
@@ -768,7 +771,30 @@ $reportLabels = [
                 </div>
             </div>
 
-            <button class="btn" type="submit"><?php echo icon('send'); ?> Post message</button>
+            <div class="draft-tools" data-draft-tools hidden>
+                <label class="draft-opt-in">
+                    <input type="checkbox" data-draft-opt-in>
+                    <span>Save a draft on this device</span>
+                </label>
+                <span class="draft-privacy">Optional · expires after 24 hours</span>
+                <button class="linkbtn draft-delete" type="button" data-draft-delete hidden>Delete saved draft</button>
+                <span class="draft-status" data-draft-status aria-live="polite" aria-atomic="true"></span>
+            </div>
+
+            <div class="compose-actions">
+                <button class="btn" type="submit"><?php echo icon('send'); ?> Post message</button>
+                <button class="btn secondary preview-toggle" type="button" data-preview-toggle
+                        aria-expanded="false" aria-controls="message-preview" hidden>Preview</button>
+            </div>
+
+            <section class="message-preview" id="message-preview" data-message-preview
+                     aria-labelledby="preview-title" hidden>
+                <p class="preview-label" id="preview-title">Private preview</p>
+                <div class="preview-card">
+                    <p class="preview-author" data-preview-author>Anonymous</p>
+                    <p class="preview-body" data-preview-body>Start typing to preview your message.</p>
+                </div>
+            </section>
         </form>
 
         <section>
@@ -1084,6 +1110,7 @@ $reportLabels = [
             <summary>Privacy, moderation &amp; data use</summary>
             <p>Messages and names are public. A keyed, non-reversible network identifier is used for abuse prevention and detached from messages after 24 hours. Submissions may be queued for human review using fixed signals such as recent duplication, link density and invisible Unicode controls; no message is automatically deleted. The keyed duplicate fingerprint is also removed after 24 hours. Security events are retained for up to 90 days.</p>
             <p>Abuse reports contain only the selected category and message number. They do not store a reporter identifier or free-text explanation. Reviewed reports are deleted after 90 days; minimal append-only admin actions remain for accountability.</p>
+            <p>Draft saving is optional. When enabled, the name and message stay only in this browser's local storage, expire after 24 hours and are removed after a successful submission. Previewing never sends additional data or renders message HTML.</p>
             <?php if (ANALYTICS_WEBSITE_ID !== ''): ?>
             <p>This deployment loads self-hosted analytics from <code>analytics.micutu.com</code>. It respects Do Not Track, excludes query strings and URL fragments, and records aggregate page and performance data.</p>
             <?php else: ?>
