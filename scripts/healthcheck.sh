@@ -112,6 +112,28 @@ curl_args=(
 
 html="$(curl "${curl_args[@]}" "${base_url}/")" || fail web request-failed
 [[ "${html}" == *'class="skip-link"'* ]] || fail web marker-missing
+[[ "${html}" == *'property="og:image"'*'/assets/social-card.png?v='* ]] \
+    || fail seo social-image-metadata-missing
+[[ "${html}" == *'property="og:image:width" content="1200"'* ]] \
+    || fail seo social-image-width-missing
+[[ "${html}" == *'property="og:image:height" content="630"'* ]] \
+    || fail seo social-image-height-missing
+[[ "${html}" == *'name="twitter:card" content="summary_large_image"'* ]] \
+    || fail seo social-card-type-invalid
+# The PHP snippet is intentionally single-quoted shell input.
+# shellcheck disable=SC2016
+if ! curl "${curl_args[@]}" "${base_url}/assets/social-card.png" | php -r '
+    $value = stream_get_contents(STDIN);
+    $image = getimagesizefromstring($value);
+    $valid = is_array($image)
+        && ($image[0] ?? null) === 1200
+        && ($image[1] ?? null) === 630
+        && ($image["mime"] ?? null) === "image/png"
+        && hash("sha256", $value) === "ec387ed5b4788647dd9ca9bdfef8f2f38cfe36c4393735f94eaa13fcb23de3e9";
+    exit($valid ? 0 : 1);
+'; then
+    fail seo social-image-invalid
+fi
 
 if [[ -n "${analytics_id}" ]]; then
     [[ "${analytics_id}" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \

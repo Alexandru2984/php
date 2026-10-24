@@ -209,6 +209,12 @@ test('SEO metadata, canonical permalinks and structured data match visible conte
   await expect(page).toHaveTitle('Micuțu Guestbook · Leave a public message');
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /^http:\/\/127\.0\.0\.1:\d+\/$/);
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', /^index, follow/);
+  await expect(page.locator('meta[property="og:image"]')).toHaveAttribute('content', /\/assets\/social-card\.png\?v=\d+$/);
+  await expect(page.locator('meta[property="og:image:width"]')).toHaveAttribute('content', '1200');
+  await expect(page.locator('meta[property="og:image:height"]')).toHaveAttribute('content', '630');
+  await expect(page.locator('meta[property="og:image:alt"]')).toHaveAttribute('content', /open guestbook/i);
+  await expect(page.locator('meta[name="twitter:card"]')).toHaveAttribute('content', 'summary_large_image');
+  await expect(page.locator('meta[name="twitter:image"]')).toHaveAttribute('content', /\/assets\/social-card\.png\?v=\d+$/);
   await expect(page.locator('[itemtype="https://schema.org/WebSite"]')).toContainText('Micuțu Guestbook');
 
   const permalink = await page.locator('.permalink').first().getAttribute('href');
@@ -216,6 +222,8 @@ test('SEO metadata, canonical permalinks and structured data match visible conte
   await page.goto(permalink);
   await expect(page).toHaveTitle(/Message by Browser check · Micuțu Guestbook/);
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/messages\/\d+$/);
+  await expect(page.locator('meta[property="og:type"]')).toHaveAttribute('content', 'article');
+  await expect(page.locator('meta[property="article:published_time"]')).toHaveAttribute('content', /Z$/);
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Guestbook');
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(/Message #\d+/);
   await expect(page.locator('[itemtype="https://schema.org/DiscussionForumPosting"] [itemprop="text"]'))

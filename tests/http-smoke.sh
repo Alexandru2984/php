@@ -161,6 +161,16 @@ grep --ignore-case --quiet '^Content-Type: image/svg+xml' "${favicon_headers}"
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
 php -r '$xml=simplexml_load_file($argv[1]);exit($xml!==false&&$xml->getName()==="svg"?0:1);' "${favicon_body}"
+social_image_headers="${tmp_dir}/social-image-headers.txt"
+social_image_body="${tmp_dir}/social-card.png"
+curl --silent --show-error --fail --dump-header "${social_image_headers}" \
+    --output "${social_image_body}" "${APP_ORIGIN}/assets/social-card.png"
+grep --ignore-case --quiet '^Content-Type: image/png' "${social_image_headers}"
+# The PHP snippet is intentionally single-quoted shell input.
+# shellcheck disable=SC2016
+php -r '$v=getimagesize($argv[1]);exit(is_array($v)&&$v[0]===1200&&$v[1]===630&&($v["mime"]??null)==="image/png"?0:1);' "${social_image_body}"
+[[ "$(sha256sum "${social_image_body}" | cut -d' ' -f1)" == \
+    ec387ed5b4788647dd9ca9bdfef8f2f38cfe36c4393735f94eaa13fcb23de3e9 ]]
 if find "${web_session_dir}" -type f -print -quit | grep --quiet .; then
     echo 'Sessionless API unexpectedly created a PHP session.' >&2
     exit 1
@@ -188,6 +198,15 @@ grep --fixed-strings --quiet '<title>Micuțu Guestbook · Leave a public message
 grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}/\">" <<<"${html}"
 grep --fixed-strings --quiet '<meta name="robots" content="index, follow,' <<<"${html}"
 grep --fixed-strings --quiet '<meta property="og:site_name" content="Micuțu Guestbook">' <<<"${html}"
+grep --fixed-strings --quiet '<meta property="og:type" content="website">' <<<"${html}"
+grep --fixed-strings --quiet "<meta property=\"og:image\" content=\"${APP_ORIGIN}/assets/social-card.png?v=" <<<"${html}"
+grep --fixed-strings --quiet '<meta property="og:image:type" content="image/png">' <<<"${html}"
+grep --fixed-strings --quiet '<meta property="og:image:width" content="1200">' <<<"${html}"
+grep --fixed-strings --quiet '<meta property="og:image:height" content="630">' <<<"${html}"
+grep --fixed-strings --quiet '<meta property="og:image:alt" content="An open guestbook surrounded by friendly message cards.">' <<<"${html}"
+grep --fixed-strings --quiet '<meta name="twitter:card" content="summary_large_image">' <<<"${html}"
+grep --fixed-strings --quiet "<meta name=\"twitter:image\" content=\"${APP_ORIGIN}/assets/social-card.png?v=" <<<"${html}"
+grep --fixed-strings --quiet '<meta name="twitter:image:alt" content="An open guestbook surrounded by friendly message cards.">' <<<"${html}"
 grep --fixed-strings --quiet 'itemtype="https://schema.org/WebSite"' <<<"${html}"
 grep --fixed-strings --quiet 'href="/feed.xml"' <<<"${html}"
 grep --fixed-strings --quiet 'href="/assets/favicon.svg"' <<<"${html}"
@@ -259,7 +278,10 @@ grep --fixed-strings --quiet 'data-preview-toggle' <<<"${permalink_html}"
 grep --quiet 'No free-text report or reporter identifier is stored.' <<<"${permalink_html}"
 grep --fixed-strings --quiet '<title>Message by Alice · Micuțu Guestbook</title>' <<<"${permalink_html}"
 grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}/messages/${message_id}\">" <<<"${permalink_html}"
+grep --fixed-strings --quiet '<meta property="og:type" content="article">' <<<"${permalink_html}"
+grep --fixed-strings --quiet '<meta property="article:published_time" content="' <<<"${permalink_html}"
 grep --fixed-strings --quiet 'itemtype="https://schema.org/DiscussionForumPosting"' <<<"${permalink_html}"
+grep --fixed-strings --quiet 'itemprop="image"' <<<"${permalink_html}"
 grep --fixed-strings --quiet 'itemtype="https://schema.org/BreadcrumbList"' <<<"${permalink_html}"
 grep --fixed-strings --quiet 'aria-current="page"' <<<"${permalink_html}"
 grep --fixed-strings --quiet 'itemprop="datePublished"' <<<"${permalink_html}"

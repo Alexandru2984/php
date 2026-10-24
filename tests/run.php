@@ -42,6 +42,16 @@ check(
         === 'be444c289ac019af8486b50fe2bbf2fdb2890812fb945dc78940b6781a68ac52',
     'reviewed analytics tracker digest is pinned'
 );
+$socialImage = getimagesize(APP_ROOT . '/assets/social-card.png');
+check(
+    is_array($socialImage)
+        && ($socialImage[0] ?? null) === 1200
+        && ($socialImage[1] ?? null) === 630
+        && ($socialImage['mime'] ?? null) === 'image/png'
+        && hash_file('sha256', APP_ROOT . '/assets/social-card.png')
+            === 'ec387ed5b4788647dd9ca9bdfef8f2f38cfe36c4393735f94eaa13fcb23de3e9',
+    'social preview image dimensions, format and digest are pinned'
+);
 check(
     seo_excerpt("  A message\nwith   spacing  ") === 'A message with spacing',
     'SEO descriptions collapse whitespace'

@@ -590,6 +590,8 @@ if ($messageId !== null) {
 $canonicalUrl = APP_ORIGIN . $canonicalPath;
 $primaryMessage = $messageId !== null && isset($messages[0]) ? $messages[0] : null;
 $siteName = 'Micuțu Guestbook';
+$socialImageUrl = APP_ORIGIN . asset('assets/social-card.png');
+$socialImageAlt = 'An open guestbook surrounded by friendly message cards.';
 if (is_array($primaryMessage)) {
     $primaryAuthor = (string) ($primaryMessage['author'] ?: 'Anonymous');
     $pageTitle = 'Message by ' . seo_excerpt($primaryAuthor, 60) . ' · ' . $siteName;
@@ -664,15 +666,25 @@ $reportLabels = [
     <meta name="theme-color" content="#0a0e18" media="(prefers-color-scheme: dark)">
     <meta name="description" content="<?php echo e($pageDescription); ?>">
     <meta name="robots" content="<?php echo e($robotsPolicy); ?>">
-    <meta property="og:type" content="website">
+    <meta property="og:type" content="<?php echo is_array($primaryMessage) ? 'article' : 'website'; ?>">
     <meta property="og:site_name" content="<?php echo e($siteName); ?>">
     <meta property="og:locale" content="en_US">
     <meta property="og:title" content="<?php echo e($pageTitle); ?>">
     <meta property="og:description" content="<?php echo e($pageDescription); ?>">
     <meta property="og:url" content="<?php echo e($canonicalUrl); ?>">
-    <meta name="twitter:card" content="summary">
+    <meta property="og:image" content="<?php echo e($socialImageUrl); ?>">
+    <meta property="og:image:type" content="image/png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="<?php echo e($socialImageAlt); ?>">
+    <?php if (is_array($primaryMessage)): ?>
+    <meta property="article:published_time" content="<?php echo e(utc_iso8601((string) $primaryMessage['created_at'])); ?>">
+    <?php endif; ?>
+    <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="<?php echo e($pageTitle); ?>">
     <meta name="twitter:description" content="<?php echo e($pageDescription); ?>">
+    <meta name="twitter:image" content="<?php echo e($socialImageUrl); ?>">
+    <meta name="twitter:image:alt" content="<?php echo e($socialImageAlt); ?>">
     <title><?php echo e($pageTitle); ?></title>
     <link rel="canonical" href="<?php echo e($canonicalUrl); ?>">
     <link rel="alternate" type="application/rss+xml" title="Micuțu Guestbook RSS" href="/feed.xml">
@@ -820,6 +832,7 @@ $reportLabels = [
                             <?php if ($isPrimaryPosting): ?>
                             <meta itemprop="mainEntityOfPage" content="<?php echo e($canonicalUrl); ?>">
                             <link itemprop="url" href="<?php echo e($canonicalUrl); ?>">
+                            <link itemprop="image" href="<?php echo e($socialImageUrl); ?>">
                             <?php endif; ?>
                             <div class="msg-head">
                                 <div class="avatar av-<?php echo avatar_index($name); ?>"><?php echo e(avatar_initial($name)); ?></div>

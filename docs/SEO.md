@@ -16,8 +16,13 @@ Canonical URLs are absolute and deterministic:
 - search results preserve their query in a self-canonical URL but remain `noindex`.
 
 The server-rendered head includes a unique title and description, canonical URL,
-robots policy, Open Graph fields, Twitter summary fields, a crawlable SVG favicon and
-RSS discovery. It uses no client-side rendering and no new third-party script.
+robots policy, Open Graph fields, a large-image social card, a crawlable SVG favicon
+and RSS discovery. The 1200×630 PNG has explicit MIME type, dimensions and alternative
+text in Open Graph and X metadata; message permalinks additionally identify themselves
+as articles and expose their publication time. The card is a first-party illustration
+with no visitor content, remote font, tracker or request-time image generation. Its
+source SVG and rendered PNG are versioned together, while unit and production health
+checks pin the output digest and dimensions.
 
 ## Discovery documents
 
@@ -50,6 +55,8 @@ This implementation follows current primary guidance from
 [canonical URLs](https://developers.google.com/search/docs/crawling-indexing/canonicalization),
 [site names](https://developers.google.com/search/docs/appearance/site-names),
 [robots metadata](https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag),
+[image discovery](https://developers.google.com/search/docs/appearance/google-images),
+[Open Graph image properties](https://ogp.me/),
 and [discussion-forum structured data](https://developers.google.com/search/docs/appearance/structured-data/discussion-forum).
 
 ## CISO review
