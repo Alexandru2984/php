@@ -34,7 +34,8 @@ Successful document shape:
       "author": "Example",
       "content": "A public message",
       "created_at": "2026-10-21T12:00:00Z",
-      "url": "https://php.micutu.com/messages/3"
+      "url": "https://php.micutu.com/messages/3",
+      "featured": false
     }
   ],
   "pagination": {
@@ -57,6 +58,10 @@ Each exact response document receives a strong SHA-256 `ETag` and
 cacheable; pending, hidden, spam and deleted rows are excluded in the indexed SQL
 query.
 
+`featured` is an additive presentation flag. The API intentionally keeps cursor
+pagination chronological rather than moving the featured row, so existing cursors do
+not skip or duplicate records when a moderator changes the selection.
+
 Cursor pagination uses `(created_at DESC, id DESC)` and fetches at most `limit + 1`
 rows, avoiding a full count. A cursor can become invalid after `APP_SECRET` rotation;
 clients should discard it and restart at the first page after a `400 invalid_cursor`.
@@ -68,8 +73,9 @@ The API does not call `session_start`, does not create a session file and does n
 `Set-Cookie`. Unknown/non-interactive paths are stateless as well. No
 `Access-Control-Allow-Origin` header is sent, and the nginx
 `Cross-Origin-Resource-Policy: same-origin` policy remains in force. Public author,
-content, timestamp, identifier and canonical URL are the only returned fields; IP
-hashes, moderation reasons, reports and audit/security events are never selected.
+content, timestamp, identifier, canonical URL and the public featured flag are the
+only returned fields; IP hashes, moderation reasons, reports and audit/security events
+are never selected.
 
 ## Operations and detection
 

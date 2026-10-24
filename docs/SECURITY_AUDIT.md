@@ -1,6 +1,6 @@
 # Security audit
 
-**Date:** 2026-10-23
+**Date:** 2026-10-24
 **Scope:** application source, Git history, live response behaviour, nginx/PHP-FPM
 configuration, SQLite metadata and backup controls. Message bodies and secret values
 were not inspected.
@@ -15,7 +15,8 @@ checks before and after migration. Detection, a privacy disclosure, reversible
 moderation, category-only abuse reporting, explainable submission-risk review,
 indexed search and an incident-response runbook are now deployed. R2 holds verified encrypted backups, while Google Drive
 redundancy is quota-degraded. Real-browser Axe, reflow and keyboard checks now gate
-CI. An active Telegram bot token was also found in local agent histories; file access
+CI. First-party social preview metadata and single-message curation add no new vendor
+or private data flow. An active Telegram bot token was also found in local agent histories; file access
 has been restricted to the owner, but credential rotation remains urgent. A formal
 tabletop, data-subject operations, Lighthouse and manual screen-reader sign-off remain
 incomplete.
@@ -30,7 +31,7 @@ incomplete.
   mode `0700` directories owned by `php-guestbook`.
 - Versioned migrations ran once and then skipped idempotently. The database reported
   `integrity=ok`, zero foreign-key violations, three published messages, three indexed
-  FTS rows and six applied migrations after the risk-review cutover. The rank-1 external
+  FTS rows and seven applied migrations after the curation cutover. The rank-1 external
   content/index integrity check passed.
 - Public probes returned `200` for HTML, JSON, RSS, CSS and `security.txt`; sensitive
   paths and path-info returned `404`, unsupported methods returned `405`, and direct
@@ -39,7 +40,7 @@ incomplete.
   sandboxed service identity. Daily jobs and the weekly restore timer are enabled;
   restored disposable backups pass integrity, foreign-key, migration and schema
   checks. The restore unit's systemd exposure score was `0.8 SAFE` at rollout.
-- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 93 unit
+- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 108 unit
   tests, HTTP/FTS integration, moderation lifecycle, health alerting and compressed
   backup/restore rejection tests. A separate Chromium job checks five viewport widths,
   primary 44px touch targets, keyboard focus, dynamic post/search/moderation flows,
@@ -75,6 +76,37 @@ incomplete.
 | S-20 | Low | Public discovery is explicit; search-console governance remains manual. | Sitemap, RSS and structured metadata select published records only; search/admin views are noindex, clean message paths reject mixed parameters, legacy links redirect without sessions, unavailable permalinks return 404, outputs are escaped and production health probes a live permalink. Sharing requires a visitor click, exposes only a canonical URL plus generic title and loads no social SDK. Search-engine recrawl/removal, ownership alerts and erasure workflows are not automated. | Verify both major search consoles, monitor coverage/rich-result errors, document cache purge and URL removal, and complete the data-subject workflow. |
 | S-21 | High | The active Telegram bot token exists in local agent-session history. | A fingerprint-only comparison found the current token in three local history files. Two Codex histories were mode `0664`; they and the containing session directories are now owner-only (`0600`/`0700`). The secret remains valid and present in retained history, so permission hardening limits local exposure but does not revoke copies. The token was not added to this repository. | Regenerate the token through BotFather, atomically update the root-owned bot credential, restart and verify the allow-listed chat, then redact or securely remove historical copies under an approved retention plan. Enforce owner-only creation permissions for all future agent transcripts. |
 | S-22 | Low | Local drafts improve resilience but can leave message text on a shared device. | Draft storage is off by default, explicitly device-scoped in the UI, bounded to server field limits, expires after 24 hours and is deleted after successful submission or on request. The text-only preview uses DOM `textContent`; browser tests prove markup does not create elements or execute. A user with access to the same unlocked browser profile can still read an opted-in draft. | Keep opt-in off by default, do not sync drafts server-side, retain the clear control and re-evaluate before adding accounts, cloud sync or longer retention. |
+| S-23 | Low | Featured-message curation adds an admin-controlled ranking signal. | A stolen admin session could promote one already-public message, but cannot feature moderated content. Same-origin CSRF-protected POST, an expiring admin session, a one-row database constraint, append-only feature/unfeature audit and automatic clearing on moderation bound the impact. | Monitor unexpected feature audit events, rotate the admin credential/session on compromise and retain the one-message/public-only invariant. |
+
+## CISO review: featured-message curation
+
+**Date:** 2026-10-24
+
+- **Threat model:** elevation/spoofing of the admin is the highest-impact scenario;
+  tampering through concurrent replacement and repudiation of a curation change follow.
+  Existing authentication plus origin/CSRF checks, `BEGIN IMMEDIATE`, a partial unique
+  index, rollback-compatible cleanup triggers and append-only feature/unfeature events
+  cover those paths.
+- **Blast radius:** the attacker can reorder one already-public message on the homepage.
+  The feature cannot publish or expose pending, hidden, spam or deleted content and
+  does not reveal identifiers, reports or admin records. No defensible FAIR annual-loss
+  estimate exists without credential-compromise frequency and response-cost inputs.
+- **Detection:** blocked and successful actions create fixed-code security events;
+  each successful replacement creates immutable admin events. CI covers anonymous
+  rejection, atomic replacement, moderation cleanup, API projection, Axe and mobile
+  reflow. The five-minute production probe enforces the database invariant.
+- **Response:** remove the feature, invalidate the admin session, rotate the admin
+  credential when compromise is suspected, preserve the audit rows and use the normal
+  immutable-release rollback. Restoring a moderated message does not re-enable its old
+  featured state.
+- **Regulatory:** the only new public field is a boolean about already-public content.
+  GDPR can still apply to the underlying author/content; a qualifying breach retains
+  the controller's 72-hour assessment window.
+- **Vendors and supply chain:** no package, vendor, cookie, remote call, processor or
+  credential is added.
+
+**Verdict:** 🟢 SHIP. Residual risk is limited to presentation of one public record and
+is reversible, constrained and attributable.
 
 ## CISO review: local draft and preview
 

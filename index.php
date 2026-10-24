@@ -303,6 +303,41 @@ if ($method === 'POST') {
         redirect('/');
     }
 
+    if (in_array($action, ['feature', 'unfeature'], true)) {
+        $adminSubject = client_ip_hash('admin-action');
+        $eventType = $action === 'feature' ? 'message.feature' : 'message.unfeature';
+        if (empty($_SESSION['is_admin'])) {
+            security_event($pdo, $eventType, 'blocked', $adminSubject);
+            flash_set('error', 'Not authorised.');
+            redirect('/');
+        }
+
+        $id = id_input($_POST, 'id');
+        if ($id === null) {
+            security_event($pdo, $eventType, 'failure', $adminSubject);
+            flash_set('error', 'Invalid featured-message request.');
+            redirect('/');
+        }
+
+        $changed = set_message_featured(
+            $pdo,
+            $id,
+            $action === 'feature',
+            admin_actor_hash()
+        );
+        security_event(
+            $pdo,
+            $eventType,
+            $changed ? 'success' : 'failure',
+            $adminSubject,
+            $id
+        );
+        flash_set($changed ? 'success' : 'error', $changed
+            ? ($action === 'feature' ? 'Featured message updated.' : 'Featured message removed.')
+            : 'Only a published message can be changed, or it already has that state.');
+        redirect('/');
+    }
+
     if ($action === 'report') {
         $id = id_input($_POST, 'id');
         $category = enum_input($_POST, 'category', abuse_report_categories());
@@ -476,7 +511,10 @@ $offset  = ($page - 1) * $perPage;
 
 $order = $q !== '' && isset($params[':fts_query'])
     ? 'bm25(messages_fts, 3.0, 1.0), m.created_at DESC, m.id DESC'
-    : 'm.created_at DESC, m.id DESC';
+    : ($messageId === null
+        ? 'CASE WHEN m.featured_at IS NULL THEN 1 ELSE 0 END, '
+            . 'm.featured_at DESC, m.created_at DESC, m.id DESC'
+        : 'm.created_at DESC, m.id DESC');
 $stmt = $pdo->prepare(
     "SELECT m.* FROM {$from} {$where} ORDER BY {$order} LIMIT :lim OFFSET :off"
 );
@@ -487,6 +525,13 @@ $stmt->bindValue(':lim', $perPage, PDO::PARAM_INT);
 $stmt->bindValue(':off', $offset, PDO::PARAM_INT);
 $stmt->execute();
 $messages = $stmt->fetchAll();
+$hasFeaturedMessage = false;
+foreach ($messages as $message) {
+    if ($message['featured_at'] !== null) {
+        $hasFeaturedMessage = true;
+        break;
+    }
+}
 
 $moderatedMessages = [];
 $openReports = [];
@@ -562,6 +607,7 @@ if ($format === 'json') {
             'author'     => $m['author'],
             'content'    => $m['content'],
             'created_at' => str_replace(' ', 'T', (string) $m['created_at']) . 'Z',
+            'featured'   => $m['featured_at'] !== null,
         ], $messages),
     ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
     exit;
@@ -610,6 +656,11 @@ $robotsPolicy = $isAdmin || $q !== ''
     ? 'noindex, follow'
     : 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1';
 $isCanonicalHome = $messageId === null && $q === '' && $page === 1;
+$feedTitle = $q !== ''
+    ? 'Search results'
+    : ($messageId !== null
+        ? 'Message'
+        : ($hasFeaturedMessage && $page === 1 ? 'Featured & recent posts' : 'Recent posts'));
 
 /** Build a URL for the feed preserving the active search query. */
 function feed_url(int $page, string $q): string
@@ -812,7 +863,7 @@ $reportLabels = [
 
         <section>
             <div class="feed-head">
-                <h2 class="section-title"><?php echo icon('history'); ?> <?php echo $q !== '' ? 'Search results' : 'Recent posts'; ?></h2>
+                <h2 class="section-title"><?php echo icon('history'); ?> <?php echo e($feedTitle); ?></h2>
                 <form method="GET" class="search" role="search">
                     <?php echo icon('search', 'field-icon'); ?>
                     <input class="input search-input" type="search" name="q" value="<?php echo e($q); ?>"
@@ -828,11 +879,14 @@ $reportLabels = [
                     <?php foreach ($messages as $msg): ?>
                         <?php $name = $msg['author'] ?? 'Anonymous'; ?>
                         <?php $isPrimaryPosting = $messageId !== null && (int) $msg['id'] === $messageId; ?>
-                        <article class="msg" id="m<?php echo (int) $msg['id']; ?>"<?php echo $isPrimaryPosting ? ' itemscope itemtype="https://schema.org/DiscussionForumPosting"' : ''; ?>>
+                        <article class="msg<?php echo $msg['featured_at'] !== null ? ' is-featured' : ''; ?>" id="m<?php echo (int) $msg['id']; ?>"<?php echo $isPrimaryPosting ? ' itemscope itemtype="https://schema.org/DiscussionForumPosting"' : ''; ?>>
                             <?php if ($isPrimaryPosting): ?>
                             <meta itemprop="mainEntityOfPage" content="<?php echo e($canonicalUrl); ?>">
                             <link itemprop="url" href="<?php echo e($canonicalUrl); ?>">
                             <link itemprop="image" href="<?php echo e($socialImageUrl); ?>">
+                            <?php endif; ?>
+                            <?php if ($msg['featured_at'] !== null): ?>
+                            <p class="featured-badge"><?php echo icon('star'); ?> Featured message</p>
                             <?php endif; ?>
                             <div class="msg-head">
                                 <div class="avatar av-<?php echo avatar_index($name); ?>"><?php echo e(avatar_initial($name)); ?></div>
@@ -877,6 +931,16 @@ $reportLabels = [
                                 <?php endif; ?>
                             </div>
                             <?php if ($isAdmin): ?>
+                            <div class="admin-message-controls">
+                            <form method="POST" class="feature-control"<?php echo $msg['featured_at'] === null ? ' data-confirm="Feature this message? It will replace the current featured message."' : ''; ?>>
+                                <?php echo csrf_field(); ?>
+                                <input type="hidden" name="action" value="<?php echo $msg['featured_at'] !== null ? 'unfeature' : 'feature'; ?>">
+                                <input type="hidden" name="id" value="<?php echo (int) $msg['id']; ?>">
+                                <button class="btn secondary compact" type="submit">
+                                    <?php echo icon('star'); ?>
+                                    <?php echo $msg['featured_at'] !== null ? 'Remove feature' : 'Feature message'; ?>
+                                </button>
+                            </form>
                             <form method="POST" class="moderation-control">
                                 <?php echo csrf_field(); ?>
                                 <input type="hidden" name="action" value="moderate">
@@ -902,6 +966,7 @@ $reportLabels = [
                                 </label>
                                 <button class="btn secondary compact" type="submit">Apply</button>
                             </form>
+                            </div>
                             <?php endif; ?>
                         </article>
                     <?php endforeach; ?>

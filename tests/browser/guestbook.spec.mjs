@@ -291,6 +291,12 @@ test('risk-queued duplicate is private, explained to admin and reversibly publis
   await expect(page.getByText(/Review score \d+\/100/)).toBeVisible();
   await expect(page.getByText('Recent duplicate')).toBeVisible();
 
+  page.once('dialog', async (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Feature message', exact: true }).first().click();
+  await expect(page.getByRole('status')).toContainText('Featured message updated');
+  await expect(page.getByText('Featured message', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Remove feature', exact: true })).toBeVisible();
+
   const results = await new AxeBuilder({ page }).withTags(wcagTags).analyze();
   expect(violationSummary(results), 'admin queue WCAG violations').toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);

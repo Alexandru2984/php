@@ -14,7 +14,7 @@ Environment=GUESTBOOK_BACKUP_DIR=/srv/backups/php-guestbook
 Environment=GUESTBOOK_RESTORE_STATUS_FILE=/srv/backups/php-guestbook/restore-drill.last-success
 Environment=GUESTBOOK_RESTORE_TMP_DIR=/run/php-guestbook-restore
 Environment=GUESTBOOK_RESTORE_MAX_BACKUP_AGE_SECONDS=108000
-Environment=GUESTBOOK_EXPECTED_MIGRATIONS=6
+Environment=GUESTBOOK_EXPECTED_MIGRATIONS=7
 RuntimeDirectory=php-guestbook-restore
 RuntimeDirectoryMode=0700
 ExecStart=/srv/canary/php.micutu.com/current/scripts/restore-drill.sh

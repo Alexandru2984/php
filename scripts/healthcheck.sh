@@ -25,7 +25,7 @@ max_backup_age="${GUESTBOOK_MAX_BACKUP_AGE_SECONDS:-108000}"
 max_restore_drill_age="${GUESTBOOK_MAX_RESTORE_DRILL_AGE_SECONDS:-691200}"
 max_offsite_age="${GUESTBOOK_MAX_OFFSITE_AGE_SECONDS:-108000}"
 max_disk_used="${GUESTBOOK_MAX_DISK_USED_PERCENT:-90}"
-expected_migrations="${GUESTBOOK_EXPECTED_MIGRATIONS:-6}"
+expected_migrations="${GUESTBOOK_EXPECTED_MIGRATIONS:-7}"
 login_window="${GUESTBOOK_LOGIN_FAILURE_WINDOW_SECONDS:-900}"
 login_threshold="${GUESTBOOK_LOGIN_FAILURE_THRESHOLD:-5}"
 open_report_threshold="${GUESTBOOK_OPEN_REPORT_THRESHOLD:-10}"
@@ -181,6 +181,12 @@ if ! php -r '
         && is_bool($pagination["has_more"])
         && array_key_exists("next_cursor", $pagination)
         && ($pagination["next_cursor"] === null || is_string($pagination["next_cursor"]));
+    foreach (($value["data"] ?? []) as $message) {
+        $valid = $valid
+            && is_array($message)
+            && array_key_exists("featured", $message)
+            && is_bool($message["featured"]);
+    }
     exit($valid ? 0 : 1);
 ' <<<"${api_document}"; then
     fail api schema-invalid
@@ -281,6 +287,15 @@ pending_messages="$(sqlite3 -batch "${db_path}" \
     || fail moderation pending-query-failed
 [[ "${pending_messages}" =~ ^[0-9]+$ ]] || fail moderation pending-count-invalid
 (( pending_messages < pending_message_threshold )) || fail moderation pending-message-threshold
+
+featured_invariant="$(sqlite3 -batch "${db_path}" \
+    "SELECT CASE
+         WHEN (SELECT COUNT(*) FROM messages WHERE featured_at IS NOT NULL) <= 1
+          AND (SELECT COUNT(*) FROM messages
+               WHERE featured_at IS NOT NULL AND status != 'published') = 0
+         THEN 1 ELSE 0 END;")" \
+    || fail moderation featured-query-failed
+[[ "${featured_invariant}" == 1 ]] || fail moderation featured-invariant-invalid
 
 latest_backup=''
 latest_mtime=0

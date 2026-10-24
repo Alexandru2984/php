@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Micuțu Guestbook API",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "Read-only, sessionless access to published guestbook messages. Cross-origin access is not granted."
   },
   "servers": [
@@ -159,7 +159,8 @@
           "author",
           "content",
           "created_at",
-          "url"
+          "url",
+          "featured"
         ],
         "properties": {
           "id": {
@@ -181,6 +182,10 @@
           "url": {
             "type": "string",
             "format": "uri"
+          },
+          "featured": {
+            "type": "boolean",
+            "description": "True when a moderator currently highlights this published message. Pagination remains chronological."
           }
         }
       },

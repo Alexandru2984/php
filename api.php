@@ -101,7 +101,7 @@ function api_list_messages(PDO $pdo, int $limit, ?array $cursor = null): array
                      OR (created_at = :cursor_created AND id < :cursor_id))';
     }
     $stmt = $pdo->prepare(
-        "SELECT id, author, content, created_at
+        "SELECT id, author, content, created_at, featured_at
          FROM messages
          WHERE {$where}
          ORDER BY created_at DESC, id DESC
@@ -132,6 +132,7 @@ function api_list_messages(PDO $pdo, int $limit, ?array $cursor = null): array
             'content' => (string) $message['content'],
             'created_at' => str_replace(' ', 'T', (string) $message['created_at']) . 'Z',
             'url' => APP_ORIGIN . public_message_path((int) $message['id']),
+            'featured' => $message['featured_at'] !== null,
         ], $rows),
         'pagination' => [
             'limit' => $limit,

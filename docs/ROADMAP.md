@@ -5,7 +5,7 @@ stage must be an atomic commit (or small reviewed commit series), include tests 
 have a rollback path. Production changes happen only after the stage passes its exit
 criteria.
 
-## Status after the 2026-10-23 hardening release
+## Status after the 2026-10-24 discovery and curation release
 
 - **Deployed:** Stages 0–2 core controls: isolated build/test, recoverable backup,
   fail-closed configuration, persistent auth throttling, versioned migrations,
@@ -22,9 +22,10 @@ criteria.
   signals, 24-hour keyed duplicate detection and a weak timing signal feed an
   explainable score. Risky submissions enter reversible human review, and a pending
   backlog pages through the existing privacy-safe monitoring path.
-- **Stage 7 foundation delivered:** privacy-safe sharing plus opt-in, expiring local
-  drafts and a text-only preview. No draft content crosses the network before the
-  visitor submits the normal form.
+- **Stage 7 foundation delivered:** privacy-safe sharing, opt-in expiring local drafts,
+  a text-only preview and moderator-selected featured messages. Feature replacement,
+  removal and moderation cleanup are transactional and append-only audited. No draft
+  content crosses the network before the visitor submits the normal form.
 - **Next priority:** restore Google Drive capacity or replace the degraded second
   off-host provider, add a second offline recovery recipient plus a human off-host drill,
   an incident-response tabletop, manual screen-reader/200% zoom checks,
@@ -163,8 +164,8 @@ zoom and a named screen-reader/manual pass remain before the full exit criterion
 
 - Opt-in profiles/display identity without requiring public email addresses.
 - Reply threads with bounded depth, mention notifications and moderator controls.
-- Reactions protected against replay/abuse, pinned/featured messages, bookmarks and
-  share links.
+- Reactions protected against replay/abuse and bookmarks remain; featured messages
+  and privacy-safe share links are delivered.
 - Author edit/delete window using one-time recovery capability tokens (hashed at
   rest), with moderation overrides and audit history.
 - Opt-in expiring draft autosave stored locally and a plain-text preview are delivered.
@@ -207,7 +208,8 @@ credential-compromise tabletop reaches containment within target time.
 - Establish Search Console/Bing ownership, review coverage and rich-result errors,
   and record organic performance without importing search queries into Umami.
 
-**Current evidence:** canonical/robots/Open Graph metadata, `WebSite`,
+**Current evidence:** canonical/robots/Open Graph metadata, a digest-pinned 1200×630
+social preview, large-image X metadata, `WebSite`,
 `DiscussionForumPosting` and visible `BreadcrumbList` microdata, `/sitemap.xml`,
 `/feed.xml`, a crawlable favicon, clean `/messages/ID` permalinks, sessionless legacy
 redirects, real 404s and explicit privacy-safe share/copy controls are covered by

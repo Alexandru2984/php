@@ -42,6 +42,28 @@ Public reports never hide content automatically. The admin reviews the queue and
 resolve/dismiss a report separately from changing the message state, preventing a
 small number of reports from becoming a censorship primitive.
 
+## Featured-message curation
+
+The admin can highlight one published message at a time. Featuring another message
+atomically removes the previous selection and appends both actions to the immutable
+admin audit. Removing the feature is reversible, while hiding, deleting, marking as
+spam or returning the message to review clears it in the same database transaction;
+restoring the message does not silently feature it again.
+
+The database enforces both invariants: a partial unique index permits at most one
+selection, and cleanup triggers remove the timestamp from any non-`published` row.
+The triggers deliberately allow the preceding release to moderate a featured row
+after rollback instead of failing its older update statement.
+The homepage places that row before the chronological feed and gives it a text badge;
+search and API cursor order remain stable. API clients receive only the boolean
+`featured` projection, never the internal timestamps or admin audit record. The health
+probe also checks that no invalid or duplicate selection exists.
+
+This control uses the existing expiring admin session, same-origin validation and
+CSRF token. Anonymous attempts are recorded as fixed-code security events. Compromise
+of the admin credential can influence which already-public message is promoted but
+cannot publish hidden content through this action.
+
 ## Access and abuse controls
 
 - All report and moderation mutations require same-origin POST plus a session CSRF
@@ -108,8 +130,8 @@ retention, risk scoring and append-only triggers. HTTP and browser tests exercis
 anonymous-to-admin flow through real cookies, CSRF and redirects. The health smoke test proves backlog alert
 generation without using production data.
 
-Migrations `004_moderation_audit.sql` and `006_submission_risk.sql` only add columns,
-tables, indexes and triggers;
+Migrations `004_moderation_audit.sql`, `006_submission_risk.sql` and
+`007_featured_message.sql` only add columns, tables, indexes and triggers;
 the preceding release continues to read the database if the application symlink is
 rolled back. Do not remove the migration record or restore an older database over a
 live SQLite writer.

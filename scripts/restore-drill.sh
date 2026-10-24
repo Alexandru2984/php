@@ -11,7 +11,7 @@ backup_dir="${GUESTBOOK_BACKUP_DIR:-/srv/backups/php-guestbook}"
 status_file="${GUESTBOOK_RESTORE_STATUS_FILE:-${backup_dir}/restore-drill.last-success}"
 tmp_root="${GUESTBOOK_RESTORE_TMP_DIR:-${TMPDIR:-/tmp}}"
 max_backup_age="${GUESTBOOK_RESTORE_MAX_BACKUP_AGE_SECONDS:-108000}"
-expected_migrations="${GUESTBOOK_EXPECTED_MIGRATIONS:-6}"
+expected_migrations="${GUESTBOOK_EXPECTED_MIGRATIONS:-7}"
 
 fail() {
     printf 'guestbook-restore-drill: FAIL component=%s reason=%s\n' "$1" "$2" >&2
@@ -105,7 +105,7 @@ sqlite3 -batch -readonly "${restored_db}" >/dev/null <<'SQL' \
 SELECT version, applied_at FROM schema_migrations LIMIT 0;
 SELECT id, author, content, ip_hash, created_at, status, deleted_at,
        moderation_reason, moderated_at, content_fingerprint, risk_score,
-       risk_flags FROM messages LIMIT 0;
+       risk_flags, featured_at, feature_changed_at FROM messages LIMIT 0;
 SELECT scope, subject_hash, window_started_at, attempts, penalty_level,
        blocked_until, updated_at FROM rate_limits LIMIT 0;
 SELECT id, event_type, outcome, subject_hash, related_id, created_at
@@ -126,6 +126,15 @@ fts_objects="$(sqlite3 -batch -readonly "${restored_db}" \
              'messages_fts_after_update'
          ));")" || fail restore search-schema-query-failed
 [[ "${fts_objects}" == 4 ]] || fail restore search-schema-missing
+
+featured_objects="$(sqlite3 -batch -readonly "${restored_db}" \
+    "SELECT COUNT(*) FROM sqlite_master
+      WHERE (type = 'index' AND name = 'idx_messages_single_featured')
+         OR (type = 'trigger' AND name IN (
+             'messages_featured_public_after_insert',
+             'messages_featured_public_after_update'
+         ));")" || fail restore featured-schema-query-failed
+[[ "${featured_objects}" == 3 ]] || fail restore featured-schema-missing
 
 # FTS5's rank=1 integrity command cross-checks the external content table against
 # the index. The restored database is disposable; the live database remains hidden.

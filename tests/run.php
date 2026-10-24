@@ -180,7 +180,7 @@ check(
     $columns === [
         'id', 'author', 'content', 'ip_hash', 'created_at', 'status', 'deleted_at',
         'moderation_reason', 'moderated_at', 'content_fingerprint', 'risk_score',
-        'risk_flags',
+        'risk_flags', 'featured_at', 'feature_changed_at',
     ],
     'migrated schema has expected columns'
 );
@@ -191,6 +191,17 @@ check(
 check(
     (int) $db->query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'messages_fts'")->fetchColumn() === 1,
     'FTS5 search index exists'
+);
+check(
+    (int) $db->query(
+        "SELECT COUNT(*) FROM sqlite_master
+         WHERE (type = 'index' AND name = 'idx_messages_single_featured')
+            OR (type = 'trigger' AND name IN (
+                'messages_featured_public_after_insert',
+                'messages_featured_public_after_update'
+            ))"
+    )->fetchColumn() === 3,
+    'featured-message uniqueness and rollback-compatible cleanup exist'
 );
 
 $seoDb = new PDO('sqlite::memory:');
@@ -204,9 +215,16 @@ $seoDb->exec(
      VALUES ('Public author', 'Public & indexable', '2026-10-23 08:00:00', 'published'),
             ('Private author', 'Pending secret', '2026-10-23 09:00:00', 'pending')"
 );
+$seoDb->exec(
+    "UPDATE messages
+     SET featured_at = '2026-10-23 10:00:00',
+         feature_changed_at = '2026-10-23 10:00:00'
+     WHERE id = 1"
+);
 $sitemapFixture = public_sitemap_xml($seoDb);
 check(
     str_contains($sitemapFixture, 'https://php.micutu.com/messages/1')
+        && str_contains($sitemapFixture, '2026-10-23T10:00:00Z')
         && !str_contains($sitemapFixture, 'message=2')
         && !str_contains($sitemapFixture, 'Pending secret'),
     'sitemap contains canonical published permalinks only'
@@ -405,6 +423,54 @@ check(
     'message delete trigger removes indexed content'
 );
 check(
+    set_message_featured($db, $moderatedId, true, $subject, 250),
+    'admin can feature a published message atomically'
+);
+check(
+    !set_message_featured($db, $moderatedId, true, $subject, 251),
+    'featuring the current selection is an idempotent no-op'
+);
+check(
+    !set_message_featured($db, (int) $duplicateSubmission['id'], true, $subject, 252),
+    'a pending message cannot be featured'
+);
+check(
+    set_message_featured($db, (int) $firstSubmission['id'], true, $subject, 260),
+    'featuring another message replaces the previous selection'
+);
+check(
+    (int) $db->query('SELECT COUNT(*) FROM messages WHERE featured_at IS NOT NULL')->fetchColumn() === 1
+        && (int) $db->query(
+            'SELECT id FROM messages WHERE featured_at IS NOT NULL'
+        )->fetchColumn() === (int) $firstSubmission['id'],
+    'the database retains exactly one featured public message'
+);
+check(
+    set_message_featured($db, (int) $firstSubmission['id'], false, $subject, 270)
+        && (int) $db->query(
+            'SELECT COUNT(*) FROM messages WHERE featured_at IS NOT NULL'
+        )->fetchColumn() === 0,
+    'admin can reversibly remove the featured selection'
+);
+$db->exec(
+    "INSERT INTO messages (author, content, featured_at, feature_changed_at)
+     VALUES ('Rollback fixture', 'Old release moderation',
+             '1970-01-01 00:04:35', '1970-01-01 00:04:35')"
+);
+$rollbackFixtureId = (int) $db->lastInsertId();
+$db->exec("UPDATE messages SET status = 'hidden' WHERE id = {$rollbackFixtureId}");
+check(
+    (int) $db->query(
+        "SELECT COUNT(*) FROM messages
+         WHERE id = {$rollbackFixtureId} AND status = 'hidden' AND featured_at IS NULL"
+    )->fetchColumn() === 1,
+    'database cleanup keeps moderation compatible with the preceding release'
+);
+check(
+    set_message_featured($db, $moderatedId, true, $subject, 280),
+    'a public message can be featured again after removal'
+);
+check(
     create_abuse_report($db, $moderatedId, 'spam', 200),
     'a public message can be reported without storing a reporter identifier'
 );
@@ -421,7 +487,8 @@ check(
     'admin can atomically hide a published message'
 );
 $moderated = $db->query(
-    "SELECT status, moderation_reason, moderated_at, ip_hash
+    "SELECT status, moderation_reason, moderated_at, ip_hash, featured_at,
+            feature_changed_at
      FROM messages WHERE id = {$moderatedId}"
 )->fetch(PDO::FETCH_ASSOC);
 check(
@@ -429,8 +496,10 @@ check(
         && $moderated['status'] === 'hidden'
         && $moderated['moderation_reason'] === 'spam'
         && $moderated['moderated_at'] === '1970-01-01 00:05:00'
-        && $moderated['ip_hash'] === null,
-    'moderation records reason/time and detaches the posting identifier'
+        && $moderated['ip_hash'] === null
+        && $moderated['featured_at'] === null
+        && $moderated['feature_changed_at'] === '1970-01-01 00:05:00',
+    'moderation records reason/time, detaches identifiers and clears featured state'
 );
 check(
     !create_abuse_report($db, $moderatedId, 'spam', 301),
@@ -445,8 +514,16 @@ check(
     'admin can resolve an open abuse report'
 );
 check(
-    (int) $db->query('SELECT COUNT(*) FROM admin_audit_events')->fetchColumn() === 3,
-    'moderation and report reviews append audit events'
+    (int) $db->query('SELECT COUNT(*) FROM admin_audit_events')->fetchColumn() === 9
+        && (int) $db->query(
+            "SELECT COUNT(*) FROM admin_audit_events
+             WHERE event_type = 'message.feature'"
+        )->fetchColumn() === 3
+        && (int) $db->query(
+            "SELECT COUNT(*) FROM admin_audit_events
+             WHERE event_type = 'message.unfeature'"
+        )->fetchColumn() === 3,
+    'moderation, featured changes and report reviews append audit events'
 );
 $appendOnly = false;
 try {
@@ -467,6 +544,13 @@ $db->exec(
      VALUES ('API first', 'first page fixture', '2030-01-01 00:00:00'),
             ('API second', 'second page fixture', '2030-01-01 00:00:00')"
 );
+$apiSecondId = (int) $db->lastInsertId();
+$db->exec(
+    "UPDATE messages
+     SET featured_at = '2030-01-01 01:00:00',
+         feature_changed_at = '2030-01-01 01:00:00'
+     WHERE id = {$apiSecondId}"
+);
 $db->exec(
     "INSERT INTO messages (author, content, created_at, status)
      VALUES ('API hidden', 'must never leak', '2031-01-01 00:00:00', 'hidden')"
@@ -475,6 +559,7 @@ $apiPageOne = api_list_messages($db, 1);
 check(
     count($apiPageOne['data']) === 1
         && $apiPageOne['data'][0]['author'] === 'API second'
+        && $apiPageOne['data'][0]['featured'] === true
         && $apiPageOne['pagination']['has_more'] === true
         && is_string($apiPageOne['pagination']['next_cursor']),
     'API page is bounded, ordered and exposes a next cursor'
@@ -489,6 +574,7 @@ $apiPageTwo = api_list_messages($db, 1, $decodedCursor);
 check(
     count($apiPageTwo['data']) === 1
         && $apiPageTwo['data'][0]['author'] === 'API first'
+        && $apiPageTwo['data'][0]['featured'] === false
         && !str_contains(json_encode($apiPageTwo), 'must never leak'),
     'API cursor advances without exposing moderated messages'
 );

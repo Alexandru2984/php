@@ -342,6 +342,7 @@ special_search_code="$(request_code --get \
 populated_api_headers="${tmp_dir}/api-populated-headers.txt"
 populated_api_body="$(curl --silent --show-error --dump-header "${populated_api_headers}" "${APP_ORIGIN}/api/v1/messages?limit=1")"
 grep --quiet 'Hello from the isolated smoke test' <<<"${populated_api_body}"
+grep --fixed-strings --quiet '"featured":false' <<<"${populated_api_body}"
 populated_etag="$(sed -n 's/^ETag: \(.*\)\r$/\1/ip' "${populated_api_headers}")"
 [[ "${populated_etag}" =~ ^\"[0-9a-f]{64}\"$ ]]
 [[ "${populated_etag}" != "${api_etag}" ]]
@@ -375,6 +376,20 @@ report_code="$(request_code \
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT message_id || ':' || category || ':' || status FROM abuse_reports;")" == "${message_id}:privacy:open" ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT attempts FROM rate_limits WHERE scope = 'abuse-report';")" == 1 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT group_concat(name, ',') FROM pragma_table_info('abuse_reports');")" == 'id,message_id,category,status,created_at,reviewed_at' ]]
+
+unauthorised_feature_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${report_csrf}" \
+    --data-urlencode 'action=feature' \
+    --data-urlencode "id=${message_id}" \
+    "${APP_ORIGIN}/")"
+[[ "${unauthorised_feature_code}" == 303 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT COUNT(*) FROM messages WHERE featured_at IS NOT NULL;")" == 0 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT COUNT(*) FROM security_events
+     WHERE event_type = 'message.feature' AND outcome = 'blocked';")" == 1 ]]
 
 legacy_rss_headers="$(curl --silent --show-error --head "${APP_ORIGIN}/?format=rss")"
 grep --ignore-case --quiet '^HTTP/1.1 301' <<<"${legacy_rss_headers}"
@@ -428,6 +443,29 @@ grep --quiet 'Review score ' <<<"${admin_html}"
 grep --quiet 'Recent duplicate' <<<"${admin_html}"
 
 admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
+feature_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${admin_csrf}" \
+    --data-urlencode 'action=feature' \
+    --data-urlencode "id=${message_id}" \
+    "${APP_ORIGIN}/")"
+[[ "${feature_code}" == 303 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT status || ':' || (featured_at IS NOT NULL) || ':' ||
+            (feature_changed_at IS NOT NULL)
+     FROM messages WHERE id = ${message_id};")" == published:1:1 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT COUNT(*) FROM admin_audit_events
+     WHERE event_type = 'message.feature' AND related_id = ${message_id};")" == 1 ]]
+featured_public_html="$(curl --silent --show-error "${APP_ORIGIN}/")"
+grep --fixed-strings --quiet 'Featured &amp; recent posts' <<<"${featured_public_html}"
+grep --fixed-strings --quiet 'Featured message' <<<"${featured_public_html}"
+featured_api_body="$(curl --silent --show-error "${APP_ORIGIN}/api/v1/messages?limit=1")"
+grep --fixed-strings --quiet '"featured":true' <<<"${featured_api_body}"
+
+admin_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
+admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
 hide_code="$(request_code \
     --cookie "${cookie_jar}" \
     --header "Origin: ${APP_ORIGIN}" \
@@ -438,8 +476,11 @@ hide_code="$(request_code \
     --data-urlencode 'reason=privacy' \
     "${APP_ORIGIN}/")"
 [[ "${hide_code}" == 303 ]]
-[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status || ':' || moderation_reason || ':' || (ip_hash IS NULL) FROM messages WHERE id = ${message_id};")" == hidden:privacy:1 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status || ':' || moderation_reason || ':' || (ip_hash IS NULL) || ':' || (featured_at IS NULL) FROM messages WHERE id = ${message_id};")" == hidden:privacy:1:1 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT previous_state || ':' || new_state || ':' || reason_code FROM admin_audit_events WHERE event_type = 'message.hide';")" == published:hidden:privacy ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT COUNT(*) FROM admin_audit_events
+     WHERE event_type = 'message.unfeature' AND related_id = ${message_id};")" == 1 ]]
 hidden_search_html="$(curl --silent --show-error --get \
     --data-urlencode 'q=isolated smoke' "${APP_ORIGIN}/")"
 if grep --quiet 'Hello from the isolated smoke test' <<<"${hidden_search_html}"; then
@@ -481,7 +522,10 @@ restore_code="$(request_code \
     --data-urlencode 'reason=restored' \
     "${APP_ORIGIN}/")"
 [[ "${restore_code}" == 303 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT status || ':' || (featured_at IS NULL)
+     FROM messages WHERE id = ${message_id};")" == published:1 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status || ':' || moderation_reason FROM messages WHERE id = ${message_id};")" == published:restored ]]
-[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM admin_audit_events;")" == 4 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM admin_audit_events;")" == 6 ]]
 
 echo 'HTTP smoke tests passed.'

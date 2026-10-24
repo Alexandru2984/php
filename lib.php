@@ -68,7 +68,12 @@ function public_message_path(int $id, bool $fragment = false): string
 function public_sitemap_xml(PDO $pdo): string
 {
     $rows = $pdo->query(
-        "SELECT id, COALESCE(moderated_at, created_at) AS updated_at
+        "SELECT id,
+                MAX(
+                    created_at,
+                    COALESCE(moderated_at, created_at),
+                    COALESCE(feature_changed_at, created_at)
+                ) AS updated_at
          FROM messages
          WHERE status = 'published'
          ORDER BY id ASC
@@ -763,16 +768,18 @@ function moderate_message(
 
     $pdo->exec('BEGIN IMMEDIATE');
     try {
-        $lookup = $pdo->prepare('SELECT status FROM messages WHERE id = :id');
+        $lookup = $pdo->prepare('SELECT status, featured_at FROM messages WHERE id = :id');
         $lookup->execute([':id' => $messageId]);
-        $previousState = $lookup->fetchColumn();
-        if ($previousState === false || $previousState === $newState) {
+        $message = $lookup->fetch(PDO::FETCH_ASSOC);
+        if ($message === false || $message['status'] === $newState) {
             $pdo->exec('COMMIT');
             return false;
         }
+        $previousState = $message['status'];
         if (!is_string($previousState) || !in_array($previousState, moderation_states(), true)) {
             throw new RuntimeException('Message has an invalid moderation state');
         }
+        $wasFeatured = is_string($message['featured_at']) && $message['featured_at'] !== '';
 
         $update = $pdo->prepare(
             "UPDATE messages
@@ -783,7 +790,16 @@ function moderate_message(
                      WHEN :new_state = 'deleted' THEN datetime(:now, 'unixepoch')
                      ELSE NULL
                  END,
-                 ip_hash = CASE WHEN :new_state = 'published' THEN ip_hash ELSE NULL END
+                 ip_hash = CASE WHEN :new_state = 'published' THEN ip_hash ELSE NULL END,
+                 featured_at = CASE
+                     WHEN :new_state = 'published' THEN featured_at
+                     ELSE NULL
+                 END,
+                 feature_changed_at = CASE
+                     WHEN :new_state != 'published' AND featured_at IS NOT NULL
+                         THEN datetime(:now, 'unixepoch')
+                     ELSE feature_changed_at
+                 END
              WHERE id = :id AND status = :previous_state"
         );
         $update->execute([
@@ -795,6 +811,20 @@ function moderate_message(
         ]);
         if ($update->rowCount() !== 1) {
             throw new RuntimeException('Concurrent moderation transition');
+        }
+
+        if ($wasFeatured && $newState !== 'published') {
+            admin_audit_event(
+                $pdo,
+                'message.unfeature',
+                'success',
+                $actorHash,
+                $messageId,
+                null,
+                null,
+                null,
+                $now
+            );
         }
 
         $eventType = match ($newState) {
@@ -813,6 +843,111 @@ function moderate_message(
             $previousState,
             $newState,
             $reasonCode,
+            $now
+        );
+        $pdo->exec('COMMIT');
+        return true;
+    } catch (Throwable $e) {
+        try {
+            $pdo->exec('ROLLBACK');
+        } catch (Throwable) {
+            // Preserve the original exception.
+        }
+        throw $e;
+    }
+}
+
+/**
+ * Feature or unfeature one public message and append the change to the admin
+ * audit trail. Featuring a new message atomically replaces the previous one.
+ */
+function set_message_featured(
+    PDO $pdo,
+    int $messageId,
+    bool $featured,
+    string $actorHash,
+    ?int $now = null
+): bool {
+    if ($messageId < 1 || preg_match('/\A[0-9a-f]{64}\z/D', $actorHash) !== 1) {
+        throw new InvalidArgumentException('Invalid featured-message change');
+    }
+    $now ??= time();
+
+    $pdo->exec('BEGIN IMMEDIATE');
+    try {
+        $lookup = $pdo->prepare(
+            'SELECT status, featured_at FROM messages WHERE id = :id'
+        );
+        $lookup->execute([':id' => $messageId]);
+        $message = $lookup->fetch(PDO::FETCH_ASSOC);
+        if ($message === false || $message['status'] !== 'published') {
+            $pdo->exec('COMMIT');
+            return false;
+        }
+
+        $currentlyFeatured = is_string($message['featured_at'])
+            && $message['featured_at'] !== '';
+        if ($currentlyFeatured === $featured) {
+            $pdo->exec('COMMIT');
+            return false;
+        }
+
+        if ($featured) {
+            $previousId = $pdo->query(
+                'SELECT id FROM messages WHERE featured_at IS NOT NULL LIMIT 1'
+            )->fetchColumn();
+            if ($previousId !== false) {
+                $clear = $pdo->prepare(
+                    "UPDATE messages
+                     SET featured_at = NULL,
+                         feature_changed_at = datetime(:now, 'unixepoch')
+                     WHERE id = :id AND featured_at IS NOT NULL"
+                );
+                $clear->execute([':now' => $now, ':id' => (int) $previousId]);
+                if ($clear->rowCount() !== 1) {
+                    throw new RuntimeException('Concurrent featured-message replacement');
+                }
+                admin_audit_event(
+                    $pdo,
+                    'message.unfeature',
+                    'success',
+                    $actorHash,
+                    (int) $previousId,
+                    null,
+                    null,
+                    null,
+                    $now
+                );
+            }
+
+            $update = $pdo->prepare(
+                "UPDATE messages
+                 SET featured_at = datetime(:now, 'unixepoch'),
+                     feature_changed_at = datetime(:now, 'unixepoch')
+                 WHERE id = :id AND status = 'published' AND featured_at IS NULL"
+            );
+        } else {
+            $update = $pdo->prepare(
+                "UPDATE messages
+                 SET featured_at = NULL,
+                     feature_changed_at = datetime(:now, 'unixepoch')
+                 WHERE id = :id AND status = 'published' AND featured_at IS NOT NULL"
+            );
+        }
+        $update->execute([':now' => $now, ':id' => $messageId]);
+        if ($update->rowCount() !== 1) {
+            throw new RuntimeException('Concurrent featured-message change');
+        }
+
+        admin_audit_event(
+            $pdo,
+            $featured ? 'message.feature' : 'message.unfeature',
+            'success',
+            $actorHash,
+            $messageId,
+            null,
+            null,
+            null,
             $now
         );
         $pdo->exec('COMMIT');
@@ -1045,6 +1180,7 @@ function icon(string $name, string $class = ''): string
         'alert'   => '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
         'search'  => '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
         'share'   => '<circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="10.51" x2="15.42" y2="6.49"/><line x1="8.59" y1="13.49" x2="15.42" y2="17.51"/>',
+        'star'    => '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
         'restore' => '<polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-9.36L1 10"/>',
     ];
     $body = $paths[$name] ?? '';

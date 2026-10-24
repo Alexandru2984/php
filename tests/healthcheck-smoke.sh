@@ -55,7 +55,7 @@ mv "${snapshot}.gz" "${backup_dir}/database-20260101T000000Z.sqlite.gz"
 chmod 0600 "${backup_dir}/database-20260101T000000Z.sqlite.gz"
 now_epoch="$(date +%s)"
 backup_mtime="$(stat -c '%Y' "${backup_dir}/database-20260101T000000Z.sqlite.gz")"
-printf 'success_epoch=%s backup_mtime=%s migrations=6\n' \
+printf 'success_epoch=%s backup_mtime=%s migrations=7\n' \
     "${now_epoch}" "${backup_mtime}" >"${restore_status_file}"
 chmod 0600 "${restore_status_file}"
 printf 'success_epoch=%s source_mtime=%s artifacts=1 verified=2 configured=2 failed=0\n' \
@@ -94,7 +94,7 @@ health_env=(
     'GUESTBOOK_MAX_RESTORE_DRILL_AGE_SECONDS=691200'
     'GUESTBOOK_MAX_OFFSITE_AGE_SECONDS=108000'
     'GUESTBOOK_MAX_DISK_USED_PERCENT=99'
-    'GUESTBOOK_EXPECTED_MIGRATIONS=6'
+    'GUESTBOOK_EXPECTED_MIGRATIONS=7'
     'GUESTBOOK_OPEN_REPORT_THRESHOLD=3'
     'GUESTBOOK_PENDING_MESSAGE_THRESHOLD=3'
     'GUESTBOOK_HEALTH_ALLOW_HTTP=1'
@@ -151,7 +151,7 @@ touch "${backup_dir}/database-20260101T000000Z.sqlite.gz"
 
 touch -d '9 days ago' "${restore_status_file}"
 stale_restore_epoch="$(( $(date +%s) - 777600 ))"
-printf 'success_epoch=%s backup_mtime=%s migrations=6\n' \
+printf 'success_epoch=%s backup_mtime=%s migrations=7\n' \
     "${stale_restore_epoch}" "${backup_mtime}" >"${restore_status_file}"
 set +e
 restore_output="$(env "${health_env[@]}" bash "${repo_dir}/scripts/healthcheck.sh" 2>&1)"
@@ -161,7 +161,7 @@ set -e
 [[ "${restore_output}" == *'component=restore-drill reason=stale'* ]]
 now_epoch="$(date +%s)"
 backup_mtime="$(stat -c '%Y' "${backup_dir}/database-20260101T000000Z.sqlite.gz")"
-printf 'success_epoch=%s backup_mtime=%s migrations=6\n' \
+printf 'success_epoch=%s backup_mtime=%s migrations=7\n' \
     "${now_epoch}" "${backup_mtime}" >"${restore_status_file}"
 
 stale_offsite_epoch="$(( $(date +%s) - 259200 ))"
