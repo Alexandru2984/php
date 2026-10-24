@@ -21,8 +21,8 @@ traffic spikes and recent 5xx responses every five minutes and already covers th
 
 The guestbook probe checks:
 
-- HTML marker, sessionless API v1 schema/cache/cookie guarantees, RSS shape, sitemap
-  XML and robots discovery through the public Cloudflare route;
+- HTML marker, sessionless API v1 schema/cache/cookie guarantees, RSS and JSON Feed
+  shapes, sitemap XML and robots discovery through the public Cloudflare route;
 - the self-hosted analytics script and all privacy attributes in rendered HTML;
 - SQLite `quick_check`, the minimum migration count, recent admin-login failures and
   privacy-minimal counts of open abuse reports and pending messages;
@@ -39,7 +39,7 @@ The guestbook probe checks:
 
 | Signal | Threshold | Detection target |
 | --- | --- | --- |
-| Public HTML/API/RSS or analytics unavailable | One failed probe | 5 minutes + timer jitter |
+| Public HTML/API/feed or analytics unavailable | One failed probe | 5 minutes + timer jitter |
 | SQLite integrity/schema failure | One failed probe | 5 minutes + timer jitter |
 | Admin authentication abuse | 5 failed/blocked attempts in 15 minutes | Next five-minute probe |
 | Unreviewed abuse-report backlog | 10 open reports | Next five-minute probe |

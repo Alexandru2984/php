@@ -236,6 +236,17 @@ check(
         && !str_contains($rssFixture, 'Pending secret'),
     'RSS contains escaped published records only'
 );
+$jsonFeedFixture = json_decode(public_json_feed($seoDb), true, 16, JSON_THROW_ON_ERROR);
+check(
+    ($jsonFeedFixture['version'] ?? null) === 'https://jsonfeed.org/version/1.1'
+        && ($jsonFeedFixture['feed_url'] ?? null) === 'https://php.micutu.com/feed.json'
+        && count($jsonFeedFixture['items'] ?? []) === 1
+        && ($jsonFeedFixture['items'][0]['url'] ?? null) === 'https://php.micutu.com/messages/1'
+        && ($jsonFeedFixture['items'][0]['content_text'] ?? null) === 'Public & indexable'
+        && ($jsonFeedFixture['items'][0]['authors'][0]['name'] ?? null) === 'Public author'
+        && !str_contains(json_encode($jsonFeedFixture), 'Pending secret'),
+    'JSON Feed contains structured published records only'
+);
 check(
     simplexml_load_string($sitemapFixture) !== false
         && simplexml_load_string($rssFixture) !== false,

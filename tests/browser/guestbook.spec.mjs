@@ -215,6 +215,8 @@ test('SEO metadata, canonical permalinks and structured data match visible conte
   await expect(page.locator('meta[property="og:image:alt"]')).toHaveAttribute('content', /open guestbook/i);
   await expect(page.locator('meta[name="twitter:card"]')).toHaveAttribute('content', 'summary_large_image');
   await expect(page.locator('meta[name="twitter:image"]')).toHaveAttribute('content', /\/assets\/social-card\.png\?v=\d+$/);
+  await expect(page.locator('link[rel="alternate"][type="application/rss+xml"]')).toHaveAttribute('href', '/feed.xml');
+  await expect(page.locator('link[rel="alternate"][type="application/feed+json"]')).toHaveAttribute('href', '/feed.json');
   await expect(page.locator('[itemtype="https://schema.org/WebSite"]')).toContainText('Micuțu Guestbook');
 
   const permalink = await page.locator('.permalink').first().getAttribute('href');

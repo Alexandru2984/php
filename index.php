@@ -9,6 +9,7 @@ $requestPath = is_string($requestPath) ? $requestPath : '';
 $isApiV1 = $requestPath === '/api/v1/messages';
 $isSitemap = $requestPath === '/sitemap.xml';
 $isFeed = $requestPath === '/feed.xml';
+$isJsonFeed = $requestPath === '/feed.json';
 $messagePathId = null;
 if (preg_match('#\A/messages/([1-9][0-9]{0,18})\z#D', $requestPath, $messagePathMatch) === 1) {
     $parsedMessagePathId = filter_var($messagePathMatch[1], FILTER_VALIDATE_INT);
@@ -46,14 +47,14 @@ if ($isLegacyMessageRedirect) {
 }
 
 if (!in_array($method, ['GET', 'HEAD', 'POST'], true)) {
-    $readOnlyRoute = $isApiV1 || $isSitemap || $isFeed;
+    $readOnlyRoute = $isApiV1 || $isSitemap || $isFeed || $isJsonFeed;
     header('Allow: ' . ($readOnlyRoute ? 'GET, HEAD' : 'GET, HEAD, POST'));
     if ($isApiV1) {
         api_error_response(405, 'method_not_allowed', 'Only GET and HEAD are supported.');
     }
     abort_response(405, 'Method not allowed.');
 }
-if (!$isApiV1 && !$isSitemap && !$isFeed && $messagePathId === null
+if (!$isApiV1 && !$isSitemap && !$isFeed && !$isJsonFeed && $messagePathId === null
     && !empty($_SERVER['PATH_INFO'])) {
     abort_response(404, 'Not found.');
 }
@@ -153,7 +154,7 @@ function public_document_response(
     exit;
 }
 
-if ($isSitemap || $isFeed) {
+if ($isSitemap || $isFeed || $isJsonFeed) {
     if (!in_array($method, ['GET', 'HEAD'], true)) {
         header('Allow: GET, HEAD');
         abort_response(405, 'Method not allowed.');
@@ -166,6 +167,14 @@ if ($isSitemap || $isFeed) {
             public_sitemap_xml($pdo),
             'application/xml; charset=utf-8',
             $method
+        );
+    }
+    if ($isJsonFeed) {
+        public_document_response(
+            public_json_feed($pdo),
+            'application/feed+json; charset=utf-8',
+            $method,
+            true
         );
     }
     public_document_response(
@@ -739,6 +748,7 @@ $reportLabels = [
     <title><?php echo e($pageTitle); ?></title>
     <link rel="canonical" href="<?php echo e($canonicalUrl); ?>">
     <link rel="alternate" type="application/rss+xml" title="Micuțu Guestbook RSS" href="/feed.xml">
+    <link rel="alternate" type="application/feed+json" title="Micuțu Guestbook JSON Feed" href="/feed.json">
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" sizes="any">
     <link rel="stylesheet" href="<?php echo e(asset('assets/style.css')); ?>">
     <script src="<?php echo e(asset('assets/theme-init.js')); ?>"></script>
@@ -1181,7 +1191,7 @@ $reportLabels = [
         <section class="site-info" id="about" aria-labelledby="about-title">
             <h2 id="about-title">About this space</h2>
             <p>A small public guestbook operated on Micuțu infrastructure. Be kind, avoid personal information, and use Report when a public message needs review.</p>
-            <p>Published messages are also available through the <a href="/api/v1/messages">sessionless JSON API</a> with a machine-readable <a href="/openapi.json">OpenAPI contract</a>.</p>
+            <p>Follow published messages through <a href="/feed.xml">RSS</a> or <a href="/feed.json">JSON Feed</a>. Developers can use the <a href="/api/v1/messages">sessionless JSON API</a> with its machine-readable <a href="/openapi.json">OpenAPI contract</a>.</p>
             <p>Security concerns can be reported using the contact route in <a href="/.well-known/security.txt">security.txt</a>.</p>
         </section>
 

@@ -17,7 +17,7 @@ Canonical URLs are absolute and deterministic:
 
 The server-rendered head includes a unique title and description, canonical URL,
 robots policy, Open Graph fields, a large-image social card, a crawlable SVG favicon
-and RSS discovery. The 1200×630 PNG has explicit MIME type, dimensions and alternative
+and RSS/JSON Feed discovery. The 1200×630 PNG has explicit MIME type, dimensions and alternative
 text in Open Graph and X metadata; message permalinks additionally identify themselves
 as articles and expose their publication time. The card is a first-party illustration
 with no visitor content, remote font, tracker or request-time image generation. Its
@@ -32,6 +32,9 @@ checks pin the output digest and dimensions.
   50,000-URL ceiling; shard it before the site approaches that size.
 - `/feed.xml` is a deterministic, sessionless RSS 2.0 feed containing at most 20
   published records. It supports strong ETags and has a short public cache lifetime.
+- `/feed.json` exposes the same bounded, published-only collection as JSON Feed 1.1.
+  It is sessionless, plain-text-only, conditionally cacheable and advertised from
+  every HTML page with an `application/feed+json` alternate link.
 - `robots.txt` is versioned with the release and points to this subdomain's sitemap,
   correcting the former `micutu.com/sitemap.xml` reference.
 - Legacy `/?format=rss` requests permanently redirect to `/feed.xml`.
@@ -57,6 +60,7 @@ This implementation follows current primary guidance from
 [robots metadata](https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag),
 [image discovery](https://developers.google.com/search/docs/appearance/google-images),
 [Open Graph image properties](https://ogp.me/),
+[JSON Feed 1.1](https://www.jsonfeed.org/version/1.1/),
 and [discussion-forum structured data](https://developers.google.com/search/docs/appearance/structured-data/discussion-forum).
 
 ## CISO review
@@ -68,7 +72,7 @@ and [discussion-forum structured data](https://developers.google.com/search/docs
 1. **Information disclosure — medium likelihood/high impact:** a sitemap, feed or
    structured-data projection could expose pending or moderated content. Mitigation:
    every generator selects `status = 'published'`; HTTP tests hide a live record and
-   prove immediate removal from both discovery documents.
+   prove immediate removal from all discovery documents.
 2. **Tampering/spoofing — medium likelihood/medium impact:** visitor text could inject
    markup, misleading metadata or a hostile canonical URL. Mitigation: canonical URLs
    are application-generated from strictly positive numeric identifiers, clean paths
@@ -93,7 +97,7 @@ evidence does not support inventing a dollar value.
 
 ### Detection and response
 
-The five-minute health probe validates RSS, sitemap XML, the exact robots sitemap
+The five-minute health probe validates RSS, JSON Feed, sitemap XML, the exact robots sitemap
 directive and a current clean permalink through Cloudflare. CI separately proves the
 legacy redirect is sessionless, canonical paths reject mixed parameters, hidden
 records return 404, and validates cache headers, XML, browser-visible microdata and

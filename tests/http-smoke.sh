@@ -151,6 +151,36 @@ fi
 # shellcheck disable=SC2016
 php -r '$xml=simplexml_load_file($argv[1]);exit($xml===false?1:0);' "${feed_body}"
 
+json_feed_headers="${tmp_dir}/json-feed-headers.txt"
+json_feed_body="${tmp_dir}/feed.json"
+[[ "$(curl --silent --show-error --dump-header "${json_feed_headers}" --output "${json_feed_body}" --write-out '%{http_code}' "${APP_ORIGIN}/feed.json")" == 200 ]]
+grep --ignore-case --quiet '^Content-Type: application/feed+json; charset=utf-8' "${json_feed_headers}"
+grep --ignore-case --quiet '^Cache-Control: public, max-age=30, stale-while-revalidate=60' "${json_feed_headers}"
+grep --ignore-case --quiet '^X-Robots-Tag: noindex' "${json_feed_headers}"
+if grep --ignore-case --quiet '^Set-Cookie:' "${json_feed_headers}"; then
+    echo 'JSON Feed unexpectedly emitted a cookie.' >&2
+    exit 1
+fi
+# The PHP snippet is intentionally single-quoted shell input.
+# shellcheck disable=SC2016
+php -r '
+    $v=json_decode(file_get_contents($argv[1]),true,16,JSON_THROW_ON_ERROR);
+    $ok=($v["version"]??null)==="https://jsonfeed.org/version/1.1"
+        &&($v["home_page_url"]??null)===$argv[2]."/"
+        &&($v["feed_url"]??null)===$argv[2]."/feed.json"
+        &&($v["items"]??null)===[];
+    exit($ok?0:1);
+' "${json_feed_body}" "${APP_ORIGIN}"
+json_feed_etag="$(sed -n 's/^ETag: \(.*\)\r$/\1/ip' "${json_feed_headers}")"
+[[ "${json_feed_etag}" =~ ^\"[0-9a-f]{64}\"$ ]]
+[[ "$(curl --silent --show-error --output "${tmp_dir}/json-feed-conditional.json" \
+    --write-out '%{http_code}' --header "If-None-Match: ${json_feed_etag}" \
+    "${APP_ORIGIN}/feed.json")" == 304 ]]
+[[ ! -s "${tmp_dir}/json-feed-conditional.json" ]]
+[[ "$(curl --silent --show-error --head --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/feed.json")" == 200 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/feed.json?unexpected=1")" == 400 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --data 'x=1' "${APP_ORIGIN}/feed.json")" == 405 ]]
+
 robots_body="$(curl --silent --show-error --fail "${APP_ORIGIN}/robots.txt")"
 grep --fixed-strings --quiet 'Sitemap: https://php.micutu.com/sitemap.xml' <<<"${robots_body}"
 favicon_headers="${tmp_dir}/favicon-headers.txt"
@@ -209,6 +239,8 @@ grep --fixed-strings --quiet "<meta name=\"twitter:image\" content=\"${APP_ORIGI
 grep --fixed-strings --quiet '<meta name="twitter:image:alt" content="An open guestbook surrounded by friendly message cards.">' <<<"${html}"
 grep --fixed-strings --quiet 'itemtype="https://schema.org/WebSite"' <<<"${html}"
 grep --fixed-strings --quiet 'href="/feed.xml"' <<<"${html}"
+grep --fixed-strings --quiet 'type="application/feed+json"' <<<"${html}"
+grep --fixed-strings --quiet 'href="/feed.json"' <<<"${html}"
 grep --fixed-strings --quiet 'href="/assets/favicon.svg"' <<<"${html}"
 analytics_asset="$(curl --silent --show-error --fail "${APP_ORIGIN}/assets/analytics.js")"
 [[ "$(sha256sum <<<"${analytics_asset}" | cut -d' ' -f1)" == \
@@ -330,6 +362,17 @@ grep --fixed-strings --quiet "${APP_ORIGIN}/messages/${message_id}" <<<"${sitema
 [[ "$(grep -o '/messages/' <<<"${sitemap_populated}" | wc -l)" == 1 ]]
 feed_populated="$(curl --silent --show-error "${APP_ORIGIN}/feed.xml")"
 [[ "$(grep -o 'Hello from the isolated smoke test' <<<"${feed_populated}" | wc -l)" == 1 ]]
+json_feed_populated="$(curl --silent --show-error "${APP_ORIGIN}/feed.json")"
+# The PHP snippet is intentionally single-quoted shell input.
+# shellcheck disable=SC2016
+php -r '
+    $v=json_decode(stream_get_contents(STDIN),true,16,JSON_THROW_ON_ERROR);
+    $i=$v["items"][0]??null;
+    $ok=count($v["items"]??[])===1
+        &&($i["url"]??null)===$argv[1]
+        &&($i["content_text"]??null)==="Hello from the isolated smoke test";
+    exit($ok?0:1);
+' "${APP_ORIGIN}/messages/${message_id}" <<<"${json_feed_populated}"
 
 search_html="$(curl --silent --show-error --get \
     --data-urlencode 'q=Alice isolated smoke' "${APP_ORIGIN}/")"
@@ -489,8 +532,10 @@ if grep --quiet 'Hello from the isolated smoke test' <<<"${hidden_search_html}";
 fi
 hidden_sitemap="$(curl --silent --show-error "${APP_ORIGIN}/sitemap.xml")"
 hidden_feed="$(curl --silent --show-error "${APP_ORIGIN}/feed.xml")"
+hidden_json_feed="$(curl --silent --show-error "${APP_ORIGIN}/feed.json")"
 if grep --fixed-strings --quiet "/messages/${message_id}" <<<"${hidden_sitemap}" \
-    || grep --fixed-strings --quiet 'Hello from the isolated smoke test' <<<"${hidden_feed}"; then
+    || grep --fixed-strings --quiet 'Hello from the isolated smoke test' <<<"${hidden_feed}" \
+    || grep --fixed-strings --quiet 'Hello from the isolated smoke test' <<<"${hidden_json_feed}"; then
     echo 'A discovery document exposed a moderated message.' >&2
     exit 1
 fi

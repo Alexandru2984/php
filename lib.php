@@ -145,6 +145,53 @@ function public_rss_xml(PDO $pdo, int $limit = 20): string
     return $xml . "</channel>\n</rss>\n";
 }
 
+/** Build a deterministic JSON Feed 1.1 document from published records only. */
+function public_json_feed(PDO $pdo, int $limit = 20): string
+{
+    if ($limit < 1 || $limit > 50) {
+        throw new InvalidArgumentException('Invalid feed limit');
+    }
+    $stmt = $pdo->prepare(
+        "SELECT id, author, content, created_at
+         FROM messages
+         WHERE status = 'published'
+         ORDER BY created_at DESC, id DESC
+         LIMIT :limit"
+    );
+    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    $stmt->execute();
+
+    $items = [];
+    foreach ($stmt->fetchAll() as $message) {
+        $author = (string) ($message['author'] ?: 'Anonymous');
+        $url = APP_ORIGIN . public_message_path((int) $message['id']);
+        $items[] = [
+            'id' => $url,
+            'url' => $url,
+            'title' => 'Message by ' . seo_excerpt($author, 60),
+            'content_text' => (string) $message['content'],
+            'date_published' => utc_iso8601((string) $message['created_at']),
+            'authors' => [['name' => $author]],
+        ];
+    }
+
+    return json_encode(
+        [
+            'version' => 'https://jsonfeed.org/version/1.1',
+            'title' => 'Micuțu Guestbook',
+            'home_page_url' => APP_ORIGIN . '/',
+            'feed_url' => APP_ORIGIN . '/feed.json',
+            'description' => 'Recent public guestbook messages',
+            'language' => 'en',
+            'items' => $items,
+        ],
+        JSON_UNESCAPED_UNICODE
+            | JSON_UNESCAPED_SLASHES
+            | JSON_INVALID_UTF8_SUBSTITUTE
+            | JSON_THROW_ON_ERROR
+    ) . "\n";
+}
+
 /** Return the current CSRF token, creating one for the session if needed. */
 function csrf_token(): string
 {

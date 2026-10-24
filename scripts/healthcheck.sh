@@ -213,6 +213,30 @@ fi
 
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
+if ! curl "${curl_args[@]}" "${base_url}/feed.json" | php -r '
+    $value = json_decode(stream_get_contents(STDIN), true, 16, JSON_THROW_ON_ERROR);
+    $valid = is_array($value)
+        && ($value["version"] ?? null) === "https://jsonfeed.org/version/1.1"
+        && ($value["feed_url"] ?? null) === $argv[1]
+        && isset($value["items"])
+        && is_array($value["items"])
+        && count($value["items"]) <= 20;
+    foreach (($value["items"] ?? []) as $item) {
+        $valid = $valid
+            && is_array($item)
+            && is_string($item["id"] ?? null)
+            && is_string($item["url"] ?? null)
+            && is_string($item["content_text"] ?? null)
+            && is_string($item["date_published"] ?? null)
+            && is_array($item["authors"] ?? null);
+    }
+    exit($valid ? 0 : 1);
+' "${base_url}/feed.json"; then
+    fail json-feed schema-invalid
+fi
+
+# The PHP snippet is intentionally single-quoted shell input.
+# shellcheck disable=SC2016
 if ! curl "${curl_args[@]}" "${base_url}/sitemap.xml" | php -r '
     $value = simplexml_load_string(stream_get_contents(STDIN));
     exit($value !== false && $value->getName() === "urlset" ? 0 : 1);
