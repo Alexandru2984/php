@@ -252,6 +252,35 @@ unset robots
 
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
+archive_path="$(curl "${curl_args[@]}" "${base_url}/sitemap.xml" | php -r '
+    $value = simplexml_load_string(stream_get_contents(STDIN));
+    if ($value === false) { exit(1); }
+    $prefix = $argv[1] . "/archive/";
+    foreach ($value->url as $entry) {
+        $location = (string) ($entry->loc ?? "");
+        if (str_starts_with($location, $prefix)) {
+            $path = parse_url($location, PHP_URL_PATH);
+            if (!is_string($path) || preg_match("#\\A/archive/[12][0-9]{3}/(?:0[1-9]|1[0-2])\\z#D", $path) !== 1) {
+                exit(1);
+            }
+            echo $path;
+            break;
+        }
+    }
+' "${base_url}")" || fail seo archive-discovery-invalid
+if [[ -n "${archive_path}" ]]; then
+    archive_html="$(curl "${curl_args[@]}" "${base_url}${archive_path}")" \
+        || fail seo archive-unavailable
+    [[ "${archive_html}" == *"rel=\"canonical\" href=\"${base_url}${archive_path}\""* ]] \
+        || fail seo archive-canonical-missing
+    [[ "${archive_html}" == *'itemtype="https://schema.org/BreadcrumbList"'* ]] \
+        || fail seo archive-breadcrumb-missing
+    unset archive_html
+fi
+unset archive_path
+
+# The PHP snippet is intentionally single-quoted shell input.
+# shellcheck disable=SC2016
 first_message_id="$(php -r '
     $value = json_decode(stream_get_contents(STDIN), true, 8, JSON_THROW_ON_ERROR);
     $id = $value["data"][0]["id"] ?? null;

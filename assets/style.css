@@ -382,6 +382,53 @@ body {
 .preview-author { margin: 0 0 6px; font-size: .82rem; font-weight: 750; }
 .preview-body { margin: 0; color: var(--text-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 
+/* ---- Calendar archive ---- */
+.archive-browser {
+    margin: -12px 0 30px;
+    padding: 15px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+}
+.archive-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+.archive-heading h2 { margin: 0; font-size: .92rem; }
+.archive-heading span { color: var(--text-faint); font-size: .68rem; }
+.archive-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.archive-link {
+    display: flex;
+    min-height: 52px;
+    padding: 8px 10px;
+    flex-direction: column;
+    justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--text);
+    text-decoration: none;
+}
+.archive-link:hover { border-color: var(--primary); color: var(--primary-text); }
+.archive-link:focus-visible { outline: 3px solid var(--primary); outline-offset: 2px; }
+.archive-link.is-current {
+    border-color: var(--primary);
+    background: var(--primary-soft);
+    color: var(--primary-text);
+}
+.archive-link time { font-size: .78rem; font-weight: 750; }
+.archive-link span { color: var(--text-faint); font-size: .68rem; }
+
 /* ---- Feed ---- */
 .section-title {
     display: flex; align-items: center; gap: 8px;
@@ -876,6 +923,7 @@ body {
     .draft-privacy, .draft-status { text-align: left; }
     .compose-actions { grid-template-columns: 1fr; }
     .preview-toggle { width: 100%; }
+    .archive-heading { align-items: flex-start; flex-direction: column; gap: 2px; }
 }
 
 @media (max-width: 600px) {

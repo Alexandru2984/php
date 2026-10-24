@@ -64,10 +64,51 @@ function public_message_path(int $id, bool $fragment = false): string
     return $fragment ? $path . '#m' . $id : $path;
 }
 
+/** Return the canonical path for one UTC calendar month of public messages. */
+function public_archive_path(int $year, int $month, int $page = 1): string
+{
+    if ($year < 1000 || $year > 2999 || $month < 1 || $month > 12 || $page < 1) {
+        throw new InvalidArgumentException('Invalid archive path');
+    }
+    $path = sprintf('/archive/%04d/%02d', $year, $month);
+    return $page === 1 ? $path : $path . '?page=' . $page;
+}
+
+/** Return a bounded newest-first list of UTC months containing published records. */
+function public_archive_months(PDO $pdo, int $limit = 120): array
+{
+    if ($limit < 1 || $limit > 240) {
+        throw new InvalidArgumentException('Invalid archive month limit');
+    }
+    $stmt = $pdo->prepare(
+        "SELECT archive_month, COUNT(*) AS message_count, MAX(updated_at) AS updated_at
+         FROM (
+             SELECT substr(created_at, 1, 7) AS archive_month,
+                    MAX(
+                        created_at,
+                        COALESCE(moderated_at, created_at),
+                        COALESCE(feature_changed_at, created_at)
+                    ) AS updated_at
+             FROM messages
+             WHERE status = 'published'
+               AND (created_at GLOB '[12][0-9][0-9][0-9]-0[1-9]-*'
+                    OR created_at GLOB '[12][0-9][0-9][0-9]-1[0-2]-*')
+         )
+         GROUP BY archive_month
+         ORDER BY archive_month DESC
+         LIMIT :limit"
+    );
+    $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+    $stmt->execute();
+    return $stmt->fetchAll();
+}
+
 /** Build a bounded sitemap from published records only. */
 function public_sitemap_xml(PDO $pdo): string
 {
-    $rows = $pdo->query(
+    $archiveMonths = public_archive_months($pdo);
+    $messageLimit = 49999 - count($archiveMonths);
+    $stmt = $pdo->prepare(
         "SELECT id,
                 MAX(
                     created_at,
@@ -77,16 +118,25 @@ function public_sitemap_xml(PDO $pdo): string
          FROM messages
          WHERE status = 'published'
          ORDER BY id ASC
-         LIMIT 49999"
-    )->fetchAll();
+         LIMIT :limit"
+    );
+    $stmt->bindValue(':limit', $messageLimit, PDO::PARAM_INT);
+    $stmt->execute();
+    $rows = $stmt->fetchAll();
 
-    $latest = null;
-    foreach ($rows as $row) {
-        $updatedAt = (string) $row['updated_at'];
-        if ($latest === null || strcmp($updatedAt, $latest) > 0) {
-            $latest = $updatedAt;
-        }
-    }
+    $latest = $pdo->query(
+        "SELECT MAX(updated_at)
+         FROM (
+             SELECT MAX(
+                        created_at,
+                        COALESCE(moderated_at, created_at),
+                        COALESCE(feature_changed_at, created_at)
+                    ) AS updated_at
+             FROM messages
+             WHERE status = 'published'
+         )"
+    )->fetchColumn();
+    $latest = is_string($latest) && $latest !== '' ? $latest : null;
 
     $xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n";
     $xml .= "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n";
@@ -95,6 +145,14 @@ function public_sitemap_xml(PDO $pdo): string
         $xml .= '<lastmod>' . utc_iso8601($latest) . '</lastmod>';
     }
     $xml .= "</url>\n";
+    foreach ($archiveMonths as $archiveMonth) {
+        if (preg_match('/\A([12][0-9]{3})-(0[1-9]|1[0-2])\z/D', (string) $archiveMonth['archive_month'], $match) !== 1) {
+            continue;
+        }
+        $url = APP_ORIGIN . public_archive_path((int) $match[1], (int) $match[2]);
+        $xml .= '  <url><loc>' . xml_e($url) . '</loc><lastmod>'
+            . utc_iso8601((string) $archiveMonth['updated_at']) . "</lastmod></url>\n";
+    }
     foreach ($rows as $row) {
         $url = APP_ORIGIN . public_message_path((int) $row['id']);
         $xml .= '  <url><loc>' . xml_e($url) . '</loc><lastmod>'

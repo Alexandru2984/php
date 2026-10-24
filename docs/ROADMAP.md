@@ -211,7 +211,8 @@ credential-compromise tabletop reaches containment within target time.
 **Current evidence:** canonical/robots/Open Graph metadata, a digest-pinned 1200×630
 social preview, large-image X metadata, `WebSite`,
 `DiscussionForumPosting` and visible `BreadcrumbList` microdata, `/sitemap.xml`,
-`/feed.xml`, JSON Feed 1.1 at `/feed.json`, a crawlable favicon, clean `/messages/ID` permalinks, sessionless legacy
+`/feed.xml`, JSON Feed 1.1 at `/feed.json`, responsive UTC calendar archives,
+a crawlable favicon, clean `/messages/ID` permalinks, sessionless legacy
 redirects, real 404s and explicit privacy-safe share/copy controls are covered by
 unit, HTTP, health and Chromium checks. Search Console ownership, production
 rich-result validation and crawler-log dashboards remain.

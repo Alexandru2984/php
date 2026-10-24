@@ -114,6 +114,8 @@ grep --quiet '"code":"invalid_limit"' "${tmp_dir}/api-error.json"
 [[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/api/v1/messages?unknown=1")" == 400 ]]
 [[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --data 'action=post' "${APP_ORIGIN}/api/v1/messages")" == 405 ]]
 [[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/not-a-route")" == 404 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/archive/2026/00")" == 404 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/archive/2026/13")" == 404 ]]
 
 sitemap_headers="${tmp_dir}/sitemap-headers.txt"
 sitemap_body="${tmp_dir}/sitemap.xml"
@@ -205,6 +207,7 @@ if find "${web_session_dir}" -type f -print -quit | grep --quiet .; then
     echo 'Sessionless API unexpectedly created a PHP session.' >&2
     exit 1
 fi
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/archive/2026/10")" == 404 ]]
 openapi_body="$(curl --silent --show-error --fail "${APP_ORIGIN}/openapi.json")"
 grep --quiet '"/api/v1/messages"' <<<"${openapi_body}"
 
@@ -254,6 +257,27 @@ request_code() {
 [[ "$(request_code "${APP_ORIGIN}/index.php/extra")" == 404 ]]
 [[ "$(request_code "${APP_ORIGIN}/?q%5B%5D=nested")" == 400 ]]
 [[ "$(request_code "${APP_ORIGIN}/?page%5B%5D=2")" == 400 ]]
+
+sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM n WHERE x < 11)
+     INSERT INTO messages (author, content, created_at, status)
+     SELECT 'Archive fixture', 'Temporary archive fixture ' || x,
+            printf('2025-07-%02d 12:00:00', x), 'published' FROM n;"
+archive_page_one="$(curl --silent --show-error --fail "${APP_ORIGIN}/archive/2025/07")"
+grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}/archive/2025/07\">" <<<"${archive_page_one}"
+grep --fixed-strings --quiet "<link rel=\"next\" href=\"${APP_ORIGIN}/archive/2025/07?page=2\">" <<<"${archive_page_one}"
+grep --fixed-strings --quiet 'Temporary archive fixture 11' <<<"${archive_page_one}"
+if grep --fixed-strings --quiet 'Temporary archive fixture 1</p>' <<<"${archive_page_one}"; then
+    echo 'Archive pagination exposed a record from the next page.' >&2
+    exit 1
+fi
+archive_page_two="$(curl --silent --show-error --fail "${APP_ORIGIN}/archive/2025/07?page=2")"
+grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}/archive/2025/07?page=2\">" <<<"${archive_page_two}"
+grep --fixed-strings --quiet "<link rel=\"prev\" href=\"${APP_ORIGIN}/archive/2025/07\">" <<<"${archive_page_two}"
+grep --fixed-strings --quiet 'Temporary archive fixture 1</p>' <<<"${archive_page_two}"
+[[ "$(request_code "${APP_ORIGIN}/archive/2025/07?page=3")" == 404 ]]
+sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "DELETE FROM messages WHERE author = 'Archive fixture';"
+[[ "$(request_code "${APP_ORIGIN}/archive/2025/07")" == 404 ]]
 
 cross_origin_code="$(request_code \
     --cookie "${cookie_jar}" \
@@ -360,6 +384,18 @@ public_html="$(curl --silent --show-error "${APP_ORIGIN}/")"
 sitemap_populated="$(curl --silent --show-error "${APP_ORIGIN}/sitemap.xml")"
 grep --fixed-strings --quiet "${APP_ORIGIN}/messages/${message_id}" <<<"${sitemap_populated}"
 [[ "$(grep -o '/messages/' <<<"${sitemap_populated}" | wc -l)" == 1 ]]
+archive_key="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT substr(created_at, 1, 7) FROM messages WHERE id = ${message_id};")"
+[[ "${archive_key}" =~ ^[12][0-9]{3}-(0[1-9]|1[0-2])$ ]]
+archive_path="/archive/${archive_key/-//}"
+grep --fixed-strings --quiet "${APP_ORIGIN}${archive_path}" <<<"${sitemap_populated}"
+archive_html="$(curl --silent --show-error --fail "${APP_ORIGIN}${archive_path}")"
+grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}${archive_path}\">" <<<"${archive_html}"
+grep --fixed-strings --quiet ' archive · Micuțu Guestbook</title>' <<<"${archive_html}"
+grep --fixed-strings --quiet 'itemtype="https://schema.org/BreadcrumbList"' <<<"${archive_html}"
+grep --fixed-strings --quiet 'aria-current="page"' <<<"${archive_html}"
+[[ "$(grep -o 'Hello from the isolated smoke test' <<<"${archive_html}" | wc -l)" == 1 ]]
+[[ "$(request_code --head "${APP_ORIGIN}${archive_path}")" == 200 ]]
+[[ "$(request_code "${APP_ORIGIN}${archive_path}?q=isolated")" == 400 ]]
 feed_populated="$(curl --silent --show-error "${APP_ORIGIN}/feed.xml")"
 [[ "$(grep -o 'Hello from the isolated smoke test' <<<"${feed_populated}" | wc -l)" == 1 ]]
 json_feed_populated="$(curl --silent --show-error "${APP_ORIGIN}/feed.json")"
@@ -533,9 +569,12 @@ fi
 hidden_sitemap="$(curl --silent --show-error "${APP_ORIGIN}/sitemap.xml")"
 hidden_feed="$(curl --silent --show-error "${APP_ORIGIN}/feed.xml")"
 hidden_json_feed="$(curl --silent --show-error "${APP_ORIGIN}/feed.json")"
+hidden_archive_code="$(request_code "${APP_ORIGIN}${archive_path}")"
 if grep --fixed-strings --quiet "/messages/${message_id}" <<<"${hidden_sitemap}" \
+    || grep --fixed-strings --quiet "${archive_path}" <<<"${hidden_sitemap}" \
     || grep --fixed-strings --quiet 'Hello from the isolated smoke test' <<<"${hidden_feed}" \
-    || grep --fixed-strings --quiet 'Hello from the isolated smoke test' <<<"${hidden_json_feed}"; then
+    || grep --fixed-strings --quiet 'Hello from the isolated smoke test' <<<"${hidden_json_feed}" \
+    || [[ "${hidden_archive_code}" != 404 ]]; then
     echo 'A discovery document exposed a moderated message.' >&2
     exit 1
 fi

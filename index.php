@@ -11,14 +11,22 @@ $isSitemap = $requestPath === '/sitemap.xml';
 $isFeed = $requestPath === '/feed.xml';
 $isJsonFeed = $requestPath === '/feed.json';
 $messagePathId = null;
+$archiveYear = null;
+$archiveMonth = null;
 if (preg_match('#\A/messages/([1-9][0-9]{0,18})\z#D', $requestPath, $messagePathMatch) === 1) {
     $parsedMessagePathId = filter_var($messagePathMatch[1], FILTER_VALIDATE_INT);
     if ($parsedMessagePathId !== false) {
         $messagePathId = $parsedMessagePathId;
     }
 }
+if (preg_match('#\A/archive/([12][0-9]{3})/(0[1-9]|1[0-2])\z#D', $requestPath, $archivePathMatch) === 1) {
+    $archiveYear = (int) $archivePathMatch[1];
+    $archiveMonth = (int) $archivePathMatch[2];
+}
+$isArchiveMonth = $archiveYear !== null && $archiveMonth !== null;
 $isInteractiveUi = in_array($requestPath, ['/', '/index.php'], true)
-    || $messagePathId !== null;
+    || $messagePathId !== null
+    || $isArchiveMonth;
 $rawFormatHint = $_GET['format'] ?? null;
 $isStatelessLegacyRead = $isInteractiveUi
     && in_array($method, ['GET', 'HEAD'], true)
@@ -55,6 +63,7 @@ if (!in_array($method, ['GET', 'HEAD', 'POST'], true)) {
     abort_response(405, 'Method not allowed.');
 }
 if (!$isApiV1 && !$isSitemap && !$isFeed && !$isJsonFeed && $messagePathId === null
+    && !$isArchiveMonth
     && !empty($_SERVER['PATH_INFO'])) {
     abort_response(404, 'Not found.');
 }
@@ -465,12 +474,36 @@ $_SESSION['compose_issued_at'] = time();
 // ---------------------------------------------------------------------------
 $isAdmin = !empty($_SESSION['is_admin']);
 
+if ($isArchiveMonth) {
+    foreach (array_keys($_GET) as $queryKey) {
+        if (!is_string($queryKey) || $queryKey !== 'page') {
+            abort_response(400, 'Unsupported archive parameter.');
+        }
+    }
+}
 $rawQuery = string_input($_GET, 'q');
 if ($rawQuery === null && array_key_exists('q', $_GET)) {
     abort_response(400, 'Invalid query.');
 }
 $q      = mb_substr(trim($rawQuery ?? ''), 0, 100);
 $messageId = $messagePathId;
+$archiveDate = null;
+$archiveLabel = null;
+$archiveStart = null;
+$archiveEnd = null;
+if ($isArchiveMonth) {
+    $archiveDate = DateTimeImmutable::createFromFormat(
+        '!Y-m',
+        sprintf('%04d-%02d', $archiveYear, $archiveMonth),
+        new DateTimeZone('UTC')
+    );
+    if (!$archiveDate instanceof DateTimeImmutable) {
+        abort_response(404, 'Archive not found.');
+    }
+    $archiveLabel = $archiveDate->format('F Y');
+    $archiveStart = $archiveDate->format('Y-m-01 00:00:00');
+    $archiveEnd = $archiveDate->modify('first day of next month')->format('Y-m-01 00:00:00');
+}
 if ($messageId !== null && $_GET !== []) {
     abort_response(400, 'Unsupported permalink parameters.');
 }
@@ -488,6 +521,12 @@ if ($messageId !== null) {
     $whereParts[] = 'm.id = :message_id';
     $params[':message_id'] = $messageId;
 }
+if ($isArchiveMonth) {
+    $whereParts[] = 'm.created_at >= :archive_start';
+    $whereParts[] = 'm.created_at < :archive_end';
+    $params[':archive_start'] = $archiveStart;
+    $params[':archive_end'] = $archiveEnd;
+}
 if ($q !== '') {
     $ftsQuery = fts5_query_from_text($q);
     if ($ftsQuery === null) {
@@ -503,8 +542,8 @@ $where = 'WHERE ' . implode(' AND ', $whereParts);
 $countStmt = $pdo->prepare("SELECT COUNT(*) FROM {$from} {$where}");
 $countStmt->execute($params);
 $total = (int) $countStmt->fetchColumn();
-if ($messageId !== null && $total === 0) {
-    abort_response(404, 'Message not found.');
+if (($messageId !== null || $isArchiveMonth) && $total === 0) {
+    abort_response(404, $messageId !== null ? 'Message not found.' : 'Archive not found.');
 }
 
 $perPage = PER_PAGE;
@@ -521,8 +560,10 @@ $offset  = ($page - 1) * $perPage;
 $order = $q !== '' && isset($params[':fts_query'])
     ? 'bm25(messages_fts, 3.0, 1.0), m.created_at DESC, m.id DESC'
     : ($messageId === null
-        ? 'CASE WHEN m.featured_at IS NULL THEN 1 ELSE 0 END, '
-            . 'm.featured_at DESC, m.created_at DESC, m.id DESC'
+        ? ($isArchiveMonth
+            ? 'm.created_at DESC, m.id DESC'
+            : 'CASE WHEN m.featured_at IS NULL THEN 1 ELSE 0 END, '
+                . 'm.featured_at DESC, m.created_at DESC, m.id DESC')
         : 'm.created_at DESC, m.id DESC');
 $stmt = $pdo->prepare(
     "SELECT m.* FROM {$from} {$where} ORDER BY {$order} LIMIT :lim OFFSET :off"
@@ -541,6 +582,7 @@ foreach ($messages as $message) {
         break;
     }
 }
+$archiveMonths = public_archive_months($pdo, 12);
 
 $moderatedMessages = [];
 $openReports = [];
@@ -631,6 +673,8 @@ if ($format !== null && $format !== '') {
 
 if ($messageId !== null) {
     $canonicalPath = public_message_path($messageId);
+} elseif ($isArchiveMonth) {
+    $canonicalPath = public_archive_path($archiveYear, $archiveMonth, $page);
 } elseif ($q !== '') {
     $canonicalParams = ['q' => $q];
     if ($page > 1) {
@@ -654,6 +698,9 @@ if (is_array($primaryMessage)) {
 } elseif ($q !== '') {
     $pageTitle = 'Search results · ' . $siteName;
     $pageDescription = 'Search results from the public Micuțu guestbook.';
+} elseif ($isArchiveMonth) {
+    $pageTitle = $archiveLabel . ' archive · ' . $siteName;
+    $pageDescription = 'Public guestbook messages from ' . $archiveLabel . '.';
 } elseif ($page > 1) {
     $pageTitle = 'Guestbook archive · Page ' . $page . ' · Micuțu';
     $pageDescription = 'Older public messages in the Micuțu guestbook.';
@@ -664,20 +711,31 @@ if (is_array($primaryMessage)) {
 $robotsPolicy = $isAdmin || $q !== ''
     ? 'noindex, follow'
     : 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1';
-$isCanonicalHome = $messageId === null && $q === '' && $page === 1;
+$isCanonicalHome = $messageId === null && !$isArchiveMonth && $q === '' && $page === 1;
 $feedTitle = $q !== ''
     ? 'Search results'
     : ($messageId !== null
         ? 'Message'
-        : ($hasFeaturedMessage && $page === 1 ? 'Featured & recent posts' : 'Recent posts'));
+        : ($isArchiveMonth
+            ? $archiveLabel . ' archive'
+            : ($hasFeaturedMessage && $page === 1 ? 'Featured & recent posts' : 'Recent posts')));
 
-/** Build a URL for the feed preserving the active search query. */
-function feed_url(int $page, string $q): string
+/** Build a URL for the active listing while preserving its bounded filters. */
+function feed_url(int $page, string $q, ?int $archiveYear, ?int $archiveMonth): string
 {
+    if ($archiveYear !== null && $archiveMonth !== null) {
+        return public_archive_path($archiveYear, $archiveMonth, $page);
+    }
     $params = array_filter(['q' => $q, 'page' => $page > 1 ? $page : null],
         static fn($v) => $v !== null && $v !== '');
     return '/' . ($params ? '?' . http_build_query($params) : '');
 }
+$previousPageUrl = $page > 1
+    ? APP_ORIGIN . feed_url($page - 1, $q, $archiveYear, $archiveMonth)
+    : null;
+$nextPageUrl = $page < $pages
+    ? APP_ORIGIN . feed_url($page + 1, $q, $archiveYear, $archiveMonth)
+    : null;
 
 $flash = flash_get();
 $oldInput = old_input_get();
@@ -747,6 +805,12 @@ $reportLabels = [
     <meta name="twitter:image:alt" content="<?php echo e($socialImageAlt); ?>">
     <title><?php echo e($pageTitle); ?></title>
     <link rel="canonical" href="<?php echo e($canonicalUrl); ?>">
+    <?php if ($previousPageUrl !== null): ?>
+    <link rel="prev" href="<?php echo e($previousPageUrl); ?>">
+    <?php endif; ?>
+    <?php if ($nextPageUrl !== null): ?>
+    <link rel="next" href="<?php echo e($nextPageUrl); ?>">
+    <?php endif; ?>
     <link rel="alternate" type="application/rss+xml" title="Micuțu Guestbook RSS" href="/feed.xml">
     <link rel="alternate" type="application/feed+json" title="Micuțu Guestbook JSON Feed" href="/feed.json">
     <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml" sizes="any">
@@ -799,7 +863,7 @@ $reportLabels = [
         <?php endif; ?>
         <p class="sr-only" aria-live="polite" aria-atomic="true" data-share-status></p>
 
-        <?php if ($messageId !== null): ?>
+        <?php if ($messageId !== null || $isArchiveMonth): ?>
         <nav class="breadcrumbs" aria-label="Breadcrumb"
              itemscope itemtype="https://schema.org/BreadcrumbList">
             <ol>
@@ -809,7 +873,7 @@ $reportLabels = [
                 </li>
                 <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem"
                     aria-current="page">
-                    <span itemprop="name">Message #<?php echo $messageId; ?></span>
+                    <span itemprop="name"><?php echo e($messageId !== null ? 'Message #' . $messageId : $archiveLabel . ' archive'); ?></span>
                     <meta itemprop="position" content="2">
                 </li>
             </ol>
@@ -871,10 +935,47 @@ $reportLabels = [
             </section>
         </form>
 
+        <?php if ($archiveMonths !== []): ?>
+        <nav class="archive-browser" aria-labelledby="archive-title">
+            <div class="archive-heading">
+                <h2 id="archive-title">Browse the archive</h2>
+                <span>UTC calendar months</span>
+            </div>
+            <ul class="archive-list">
+                <?php foreach ($archiveMonths as $monthSummary): ?>
+                    <?php
+                    $monthKey = (string) $monthSummary['archive_month'];
+                    $monthDate = DateTimeImmutable::createFromFormat(
+                        '!Y-m',
+                        $monthKey,
+                        new DateTimeZone('UTC')
+                    );
+                    if (!$monthDate instanceof DateTimeImmutable) {
+                        continue;
+                    }
+                    $monthYear = (int) $monthDate->format('Y');
+                    $monthNumber = (int) $monthDate->format('m');
+                    $monthIsCurrent = $isArchiveMonth
+                        && $archiveYear === $monthYear
+                        && $archiveMonth === $monthNumber;
+                    ?>
+                <li>
+                    <a class="archive-link<?php echo $monthIsCurrent ? ' is-current' : ''; ?>"
+                       href="<?php echo e(public_archive_path($monthYear, $monthNumber)); ?>"
+                       <?php echo $monthIsCurrent ? 'aria-current="page"' : ''; ?>>
+                        <time datetime="<?php echo e($monthKey); ?>"><?php echo e($monthDate->format('F Y')); ?></time>
+                        <span><?php echo (int) $monthSummary['message_count']; ?> message<?php echo (int) $monthSummary['message_count'] === 1 ? '' : 's'; ?></span>
+                    </a>
+                </li>
+                <?php endforeach; ?>
+            </ul>
+        </nav>
+        <?php endif; ?>
+
         <section>
             <div class="feed-head">
                 <h2 class="section-title"><?php echo icon('history'); ?> <?php echo e($feedTitle); ?></h2>
-                <form method="GET" class="search" role="search">
+                <form method="GET" action="/" class="search" role="search">
                     <?php echo icon('search', 'field-icon'); ?>
                     <input class="input search-input" type="search" name="q" value="<?php echo e($q); ?>"
                            maxlength="100" placeholder="Search messages…" aria-label="Search messages">
@@ -985,13 +1086,13 @@ $reportLabels = [
                 <?php if ($pages > 1): ?>
                 <nav class="pager" aria-label="Pagination">
                     <?php if ($page > 1): ?>
-                        <a class="pager-btn" href="<?php echo e(feed_url($page - 1, $q)); ?>" rel="prev">&larr; Newer</a>
+                        <a class="pager-btn" href="<?php echo e(feed_url($page - 1, $q, $archiveYear, $archiveMonth)); ?>" rel="prev">&larr; Newer</a>
                     <?php else: ?>
                         <span class="pager-btn disabled">&larr; Newer</span>
                     <?php endif; ?>
                     <span class="pager-info">Page <?php echo $page; ?> of <?php echo $pages; ?></span>
                     <?php if ($page < $pages): ?>
-                        <a class="pager-btn" href="<?php echo e(feed_url($page + 1, $q)); ?>" rel="next">Older &rarr;</a>
+                        <a class="pager-btn" href="<?php echo e(feed_url($page + 1, $q, $archiveYear, $archiveMonth)); ?>" rel="next">Older &rarr;</a>
                     <?php else: ?>
                         <span class="pager-btn disabled">Older &rarr;</span>
                     <?php endif; ?>

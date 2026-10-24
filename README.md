@@ -12,12 +12,15 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
   indexes, bounded plain-text queries and pagination.
 - Clean permanent message links (`/messages/ID`) plus cache-aware RSS 2.0 and
   JSON Feed 1.1 discovery (`/feed.xml` and `/feed.json`).
+- Responsive UTC calendar archives with clean `/archive/YYYY/MM` URLs, canonical
+  pagination, semantic breadcrumbs and published-only message counts.
 - Progressive native sharing with a local clipboard fallback and no third-party SDK.
 - Opt-in 24-hour local drafts and a text-only preview that never renders visitor HTML.
 - A single moderator-selected featured message with atomic replacement, reversible
   controls and append-only audit history.
 - Technical SEO with stable canonical URLs, versioned robots policy, a sessionless
-  XML sitemap, RSS/JSON feeds, social metadata and forum-posting structured data.
+  XML sitemap, calendar discovery, RSS/JSON feeds, social metadata and
+  forum-posting structured data.
 - Sessionless `/api/v1/messages` with signed cursor pagination, ETags, conditional
   requests and a published OpenAPI 3.1 contract.
 - Light/dark theme with a persisted toggle.

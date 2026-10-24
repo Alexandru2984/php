@@ -3,16 +3,18 @@
 ## Indexable surface
 
 The canonical site name is **Micuțu Guestbook**. The homepage, each published
-message permalink and each non-search archive page are indexable. Search-result and
-authenticated-admin views emit `noindex, follow`. A missing, hidden, pending, spam or
-deleted permalink returns the same `404` response, avoiding both soft-404 pages and
-moderation-state disclosure.
+message permalink, each populated UTC calendar archive and each non-search stream
+page are indexable. Search-result and authenticated-admin views emit `noindex, follow`.
+A missing, empty or fully moderated archive and a missing, hidden, pending, spam or
+deleted permalink return `404`, avoiding thin/soft-404 pages and moderation-state
+disclosure.
 
 Canonical URLs are absolute and deterministic:
 
 - homepage: `https://php.micutu.com/`;
 - published message: `https://php.micutu.com/messages/ID`;
-- archive page: `https://php.micutu.com/?page=N`;
+- recent stream page: `https://php.micutu.com/?page=N`;
+- monthly archive: `https://php.micutu.com/archive/YYYY/MM[?page=N]`;
 - search results preserve their query in a self-canonical URL but remain `noindex`.
 
 The server-rendered head includes a unique title and description, canonical URL,
@@ -27,9 +29,10 @@ checks pin the output digest and dimensions.
 ## Discovery documents
 
 - `/sitemap.xml` is sessionless, conditionally cacheable and contains the homepage
-  plus at most 49,999 published message permalinks. Pending or moderated records are
-  excluded at the SQL boundary. The limit keeps the document below the protocol's
-  50,000-URL ceiling; shard it before the site approaches that size.
+  plus populated monthly archives and published message permalinks. Pending or
+  moderated records are excluded at the SQL boundary. The message budget dynamically
+  reserves space for at most 120 archive URLs and keeps the total at or below the
+  protocol's 50,000-URL ceiling; shard it before the site approaches that size.
 - `/feed.xml` is a deterministic, sessionless RSS 2.0 feed containing at most 20
   published records. It supports strong ETags and has a short public cache lifetime.
 - `/feed.json` exposes the same bounded, published-only collection as JSON Feed 1.1.
@@ -38,6 +41,13 @@ checks pin the output digest and dimensions.
 - `robots.txt` is versioned with the release and points to this subdomain's sitemap,
   correcting the former `micutu.com/sitemap.xml` reference.
 - Legacy `/?format=rss` requests permanently redirect to `/feed.xml`.
+
+The homepage exposes the newest 12 populated UTC months with public-only counts.
+Monthly pages use indexed half-open timestamp ranges, chronological ordering, unique
+titles/descriptions, self-canonicals, sequential pagination links and visible
+`BreadcrumbList` markup. Arbitrary query mixing fails closed and an empty month is a
+real 404. Moderating its final public message removes the archive URL from both the UI
+and sitemap immediately.
 
 The homepage exposes `WebSite` microdata with a visible matching site name. A message
 permalink exposes `DiscussionForumPosting`, `Person`, full visible text and an ISO
@@ -56,6 +66,7 @@ message text never enter share metadata, and no social SDK or outbound API is lo
 This implementation follows current primary guidance from
 [Google Search Central on sitemaps](https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap),
 [canonical URLs](https://developers.google.com/search/docs/crawling-indexing/canonicalization),
+[pagination and incremental page loading](https://developers.google.com/search/docs/specialty/ecommerce/pagination-and-incremental-page-loading),
 [site names](https://developers.google.com/search/docs/appearance/site-names),
 [robots metadata](https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag),
 [image discovery](https://developers.google.com/search/docs/appearance/google-images),
@@ -65,22 +76,24 @@ and [discussion-forum structured data](https://developers.google.com/search/docs
 
 ## CISO review
 
-**Date:** 2026-10-24
+**Date:** 2026-10-25
 
 ### Threat model
 
-1. **Information disclosure — medium likelihood/high impact:** a sitemap, feed or
-   structured-data projection could expose pending or moderated content. Mitigation:
-   every generator selects `status = 'published'`; HTTP tests hide a live record and
-   prove immediate removal from all discovery documents.
+1. **Information disclosure — medium likelihood/high impact:** a sitemap, calendar
+   archive, feed or structured-data projection could expose pending or moderated
+   content. Mitigation: every generator and archive query selects
+   `status = 'published'`; HTTP tests hide a live record and prove immediate removal
+   from every discovery surface and a 404 for its now-empty month.
 2. **Tampering/spoofing — medium likelihood/medium impact:** visitor text could inject
    markup, misleading metadata or a hostile canonical URL. Mitigation: canonical URLs
    are application-generated from strictly positive numeric identifiers, clean paths
    reject query mixing, XML and HTML contexts are independently escaped, titles are
    length-bounded and structured fields exactly mirror visible content.
 3. **Denial of service — low likelihood/medium impact:** crawler bursts could repeatedly
-   generate large XML documents. Mitigation: a 49,999-row upper bound, indexed status
-   queries, strong ETags, short shared caching and the existing edge request limit.
+   generate large XML documents or archive queries. Mitigation: a strict 50,000-URL
+   sitemap budget, 120-month sitemap/12-month UI bounds, indexed status/timestamp
+   ranges, normal page-size limits and the existing edge request limit.
 4. **Accidental disclosure — low likelihood/medium impact:** convenience sharing could
    silently leak visitor text or navigation state. Mitigation: no automatic action,
    generic titles, canonical paths only, and a local clipboard fallback.
@@ -97,14 +110,16 @@ evidence does not support inventing a dollar value.
 
 ### Detection and response
 
-The five-minute health probe validates RSS, JSON Feed, sitemap XML, the exact robots sitemap
-directive and a current clean permalink through Cloudflare. CI separately proves the
+The five-minute health probe validates RSS, JSON Feed, sitemap XML, a discovered
+calendar archive, the exact robots sitemap directive and a current clean permalink
+through Cloudflare. CI separately proves the
 legacy redirect is sessionless, canonical paths reject mixed parameters, hidden
 records return 404, and validates cache headers, XML, browser-visible microdata and
 explicit share invocation. On leakage, hide the record, purge the affected Cloudflare cache object,
 remove the URL through the relevant search console when necessary, preserve logs and
-follow the [incident-response runbook](INCIDENT_RESPONSE.md). A search-console review
-and crawler-leak tabletop remain manual follow-ups.
+follow the [incident-response runbook](INCIDENT_RESPONSE.md). The current MTTD target
+is five minutes plus timer jitter. A search-console review and crawler-leak tabletop
+have not yet been completed and remain manual follow-ups.
 
 ### Regulatory and vendors
 
@@ -113,7 +128,8 @@ the need for clear publication notice and erasure handling under GDPR. No new ve
 processor, cookie, package or outbound submission API is introduced. Google, Bing and
 other crawlers may independently discover public URLs; Search Console ownership and
 processor/legal-basis records remain operator responsibilities. A qualifying personal
-data breach still requires controller assessment against GDPR's 72-hour window.
+data breach still requires controller assessment against GDPR's 72-hour window. The
+calendar archive adds zero vendors, subprocessors, cookies, packages or outbound APIs.
 
 ## Verdict and rollback
 

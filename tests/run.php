@@ -62,6 +62,11 @@ check(
 );
 check(public_message_path(42) === '/messages/42', 'message path is stable and clean');
 check(public_message_path(42, true) === '/messages/42#m42', 'message fragment matches its card');
+check(
+    public_archive_path(2026, 10) === '/archive/2026/10'
+        && public_archive_path(2026, 10, 3) === '/archive/2026/10?page=3',
+    'calendar archive paths are stable, clean and paginated'
+);
 $invalidMessagePathRejected = false;
 try {
     public_message_path(0);
@@ -69,6 +74,13 @@ try {
     $invalidMessagePathRejected = true;
 }
 check($invalidMessagePathRejected, 'message path rejects invalid identifiers');
+$invalidArchivePathRejected = false;
+try {
+    public_archive_path(2026, 13);
+} catch (InvalidArgumentException) {
+    $invalidArchivePathRejected = true;
+}
+check($invalidArchivePathRejected, 'archive path rejects invalid calendar values');
 check(
     utc_iso8601('2026-10-23 08:00:00') === '2026-10-23T08:00:00Z',
     'database timestamps become RFC 3339 UTC values'
@@ -224,10 +236,35 @@ $seoDb->exec(
 $sitemapFixture = public_sitemap_xml($seoDb);
 check(
     str_contains($sitemapFixture, 'https://php.micutu.com/messages/1')
+        && str_contains($sitemapFixture, 'https://php.micutu.com/archive/2026/10')
         && str_contains($sitemapFixture, '2026-10-23T10:00:00Z')
         && !str_contains($sitemapFixture, 'message=2')
         && !str_contains($sitemapFixture, 'Pending secret'),
-    'sitemap contains canonical published permalinks only'
+    'sitemap contains canonical published permalinks and calendar archives only'
+);
+$archiveMonthFixture = public_archive_months($seoDb);
+check(
+    count($archiveMonthFixture) === 1
+        && ($archiveMonthFixture[0]['archive_month'] ?? null) === '2026-10'
+        && (int) ($archiveMonthFixture[0]['message_count'] ?? 0) === 1
+        && ($archiveMonthFixture[0]['updated_at'] ?? null) === '2026-10-23 10:00:00'
+        && substr_count($sitemapFixture, '<url>') === 3,
+    'archive summaries and sitemap URL budget include published records only'
+);
+$archivePlan = $seoDb->query(
+    "EXPLAIN QUERY PLAN
+     SELECT id FROM messages
+     WHERE status = 'published'
+       AND created_at >= '2026-10-01 00:00:00'
+       AND created_at < '2026-11-01 00:00:00'
+     ORDER BY created_at DESC, id DESC LIMIT 10"
+)->fetchAll();
+check(
+    str_contains(
+        implode(' ', array_map(static fn(array $row): string => (string) $row['detail'], $archivePlan)),
+        'idx_messages_status_created'
+    ),
+    'calendar archive range uses the published timestamp index'
 );
 $rssFixture = public_rss_xml($seoDb);
 check(

@@ -219,6 +219,18 @@ test('SEO metadata, canonical permalinks and structured data match visible conte
   await expect(page.locator('link[rel="alternate"][type="application/feed+json"]')).toHaveAttribute('href', '/feed.json');
   await expect(page.locator('[itemtype="https://schema.org/WebSite"]')).toContainText('Micuțu Guestbook');
 
+  const archiveLink = page.locator('.archive-link').first();
+  await expect(archiveLink).toContainText(/\w+ 20\d{2}/);
+  await expect(archiveLink).toContainText('1 message');
+  const archiveHref = await archiveLink.getAttribute('href');
+  expect(archiveHref).toMatch(/^\/archive\/20\d{2}\/(?:0[1-9]|1[0-2])$/);
+  await page.goto(archiveHref);
+  await expect(page).toHaveTitle(/archive · Micuțu Guestbook$/);
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', new RegExp(`${archiveHref}$`));
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('archive');
+  await expect(page.locator('.archive-link[aria-current="page"]')).toHaveAttribute('href', archiveHref);
+  await expect(page.getByText('Responsive accessibility flow', { exact: true })).toBeVisible();
+
   const permalink = await page.locator('.permalink').first().getAttribute('href');
   expect(permalink).toMatch(/^\/messages\/\d+#m\d+$/);
   await page.goto(permalink);
