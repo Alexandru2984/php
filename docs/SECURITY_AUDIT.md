@@ -151,6 +151,8 @@ the visitor's control.
   denial of service is third. The routes render fixed, reviewed copy without a data
   query, accept GET/HEAD only, reject all query parameters, create no session/cookie,
   escape metadata, use short public caching and share the existing edge limit.
+  `no-transform` keeps their ETags valid and excludes Cloudflare's per-request script
+  injection on these read-only documents; interactive guestbook pages retain it.
 - **Blast radius and FAIR:** the new routes expose no database row, identifier,
   report, audit event, credential or visitor-specific response. A tampered policy can
   mislead every prospective poster, while a routing regression could at worst expose

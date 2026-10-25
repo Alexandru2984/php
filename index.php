@@ -148,12 +148,16 @@ function public_document_response(
     string $body,
     string $contentType,
     string $method,
-    bool $noindex = false
+    bool $noindex = false,
+    bool $noTransform = false
 ): never
 {
     $etag = '"' . hash('sha256', $body) . '"';
     header('Content-Type: ' . $contentType);
-    header('Cache-Control: public, max-age=30, stale-while-revalidate=60');
+    header(
+        'Cache-Control: public, max-age=30, stale-while-revalidate=60'
+            . ($noTransform ? ', no-transform' : '')
+    );
     header('ETag: ' . $etag);
     header('Vary: Accept-Encoding');
     if ($noindex) {
@@ -186,7 +190,12 @@ if ($isPublicInfoPage) {
     if (!is_string($infoPageBody)) {
         abort_response(500, 'Unable to render page.');
     }
-    public_document_response($infoPageBody, 'text/html; charset=utf-8', $method);
+    public_document_response(
+        $infoPageBody,
+        'text/html; charset=utf-8',
+        $method,
+        noTransform: true
+    );
 }
 
 if ($isSitemap || $isFeed || $isJsonFeed) {

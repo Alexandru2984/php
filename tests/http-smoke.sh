@@ -213,7 +213,7 @@ for info_path in about privacy moderation; do
     [[ "$(curl --silent --show-error --dump-header "${info_headers}" --output "${info_body}" \
         --write-out '%{http_code}' "${APP_ORIGIN}/${info_path}")" == 200 ]]
     grep --ignore-case --quiet '^Content-Type: text/html; charset=utf-8' "${info_headers}"
-    grep --ignore-case --quiet '^Cache-Control: public, max-age=30, stale-while-revalidate=60' "${info_headers}"
+    grep --ignore-case --quiet '^Cache-Control: public, max-age=30, stale-while-revalidate=60, no-transform' "${info_headers}"
     grep --ignore-case --quiet '^Vary: Accept-Encoding' "${info_headers}"
     if grep --ignore-case --quiet '^Set-Cookie:' "${info_headers}"; then
         echo "Public ${info_path} page unexpectedly emitted a cookie." >&2

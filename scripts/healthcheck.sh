@@ -264,6 +264,8 @@ privacy_headers="$(curl "${curl_args[@]}" --head "${base_url}/privacy")" \
 privacy_headers_lower="${privacy_headers,,}"
 [[ "${privacy_headers_lower}" == *'cache-control: public, max-age=30, stale-while-revalidate=60'* ]] \
     || fail seo privacy-cache-policy-invalid
+[[ "${privacy_headers_lower}" == *'cache-control:'*'no-transform'* ]] \
+    || fail seo privacy-transform-policy-invalid
 [[ "${privacy_headers_lower}" == *'etag: "'* ]] || fail seo privacy-etag-missing
 [[ "${privacy_headers_lower}" != *$'\nset-cookie:'* ]] || fail privacy session-cookie-present
 unset privacy_html privacy_headers privacy_headers_lower

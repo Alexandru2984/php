@@ -67,6 +67,14 @@ available from every UI page. Privacy copy explicitly distinguishes application
 removal from crawler/cache copies and records the current absence of a dedicated
 data-subject channel instead of claiming a control that does not exist.
 
+Those three read-only documents send `Cache-Control: no-transform`. Cloudflare's
+zone-wide JavaScript Detection otherwise rewrites HTML and deliberately strips its
+ETag; preventing transformation here preserves the end-to-end validator and avoids a
+challenge script on informational pages. Interactive guestbook HTML remains eligible
+for the existing bot signal. This boundary follows Cloudflare's documented
+[JavaScript Detection behavior](https://developers.cloudflare.com/cloudflare-challenges/challenge-types/javascript-detections/)
+and [`no-transform` semantics](https://developers.cloudflare.com/cache/concepts/cache-control/).
+
 Each visible message also has a progressively enhanced Share control. It sends only
 the canonical permalink and a generic numeric title to the browser's native share
 sheet after an explicit click. Browsers without that API copy the same URL locally;
