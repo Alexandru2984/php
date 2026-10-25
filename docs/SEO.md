@@ -60,20 +60,24 @@ CSP for inline JSON-LD and is emitted only when the same published content is vi
 on the page.
 
 The standalone About, Privacy and Moderation routes are sessionless HTML documents
-with strong ETags, short public caching and no cookie. Each has a unique title,
-description and self-canonical, a visible `BreadcrumbList`, and explicit `AboutPage`
-or `WebPage` microdata whose fields match visible text. The policy navigation is
-available from every UI page. Privacy copy explicitly distinguishes application
-removal from crawler/cache copies and records the current absence of a dedicated
-data-subject channel instead of claiming a control that does not exist.
+with origin-generated ETags, short public caching and no cookie. Each has a unique
+title, description and self-canonical, a visible `BreadcrumbList`, and explicit
+`AboutPage` or `WebPage` microdata whose fields match visible text. The policy
+navigation is available from every UI page. Privacy copy explicitly distinguishes
+application removal from crawler/cache copies and records the current absence of a
+dedicated data-subject channel instead of claiming a control that does not exist.
 
 Those three read-only documents send `Cache-Control: no-transform`. Cloudflare's
 zone-wide JavaScript Detection otherwise rewrites HTML and deliberately strips its
 ETag; preventing transformation here preserves the end-to-end validator and avoids a
 challenge script on informational pages. Interactive guestbook HTML remains eligible
-for the existing bot signal. This boundary follows Cloudflare's documented
-[JavaScript Detection behavior](https://developers.cloudflare.com/cloudflare-challenges/challenge-types/javascript-detections/)
-and [`no-transform` semantics](https://developers.cloudflare.com/cache/concepts/cache-control/).
+for the existing bot signal. The edge can legitimately weaken the strong origin ETag
+when compression changes the byte representation; health accepts either valid form
+and verifies conditional requests instead of asserting byte identity across encodings.
+This boundary follows Cloudflare's documented
+[JavaScript Detection behavior](https://developers.cloudflare.com/cloudflare-challenges/challenge-types/javascript-detections/),
+[`no-transform` semantics](https://developers.cloudflare.com/cache/concepts/cache-control/),
+and [ETag compression behavior](https://developers.cloudflare.com/cache/reference/etag-headers/).
 
 Each visible message also has a progressively enhanced Share control. It sends only
 the canonical permalink and a generic numeric title to the browser's native share

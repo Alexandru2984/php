@@ -266,7 +266,10 @@ privacy_headers_lower="${privacy_headers,,}"
     || fail seo privacy-cache-policy-invalid
 [[ "${privacy_headers_lower}" == *'cache-control:'*'no-transform'* ]] \
     || fail seo privacy-transform-policy-invalid
-[[ "${privacy_headers_lower}" == *'etag: "'* ]] || fail seo privacy-etag-missing
+if [[ "${privacy_headers_lower}" != *$'\netag: "'* \
+    && "${privacy_headers_lower}" != *$'\netag: w/"'* ]]; then
+    fail seo privacy-etag-missing
+fi
 [[ "${privacy_headers_lower}" != *$'\nset-cookie:'* ]] || fail privacy session-cookie-present
 unset privacy_html privacy_headers privacy_headers_lower
 
