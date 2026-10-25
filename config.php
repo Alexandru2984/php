@@ -144,6 +144,8 @@ const ADMIN_IDLE_SECONDS  = 1800; // 30 minutes
 const ADMIN_MAX_SECONDS   = 43200; // 12 hours
 const MESSAGE_OWNER_COOKIE_SECONDS = 31536000; // one year on the private management path
 
+require_once APP_ROOT . '/session-policy.php';
+
 // ---------------------------------------------------------------------------
 // Session hardening. CLI maintenance and migration jobs do not have a browser
 // session and must not create files in PHP's shared session directory.
@@ -169,12 +171,12 @@ if (PHP_SAPI !== 'cli' && !$__statelessRequest) {
 
     $__now = time();
     if (!empty($_SESSION['is_admin'])) {
-        $__authenticatedAt = filter_var($_SESSION['admin_authenticated_at'] ?? null, FILTER_VALIDATE_INT);
-        $__lastSeenAt = filter_var($_SESSION['admin_last_seen_at'] ?? null, FILTER_VALIDATE_INT);
-        $__expired = $__authenticatedAt === false
-            || $__lastSeenAt === false
-            || $__now - $__lastSeenAt > ADMIN_IDLE_SECONDS
-            || $__now - $__authenticatedAt > ADMIN_MAX_SECONDS;
+        $__expired = !admin_session_is_current(
+            $_SESSION,
+            $__now,
+            ADMIN_IDLE_SECONDS,
+            ADMIN_MAX_SECONDS
+        );
 
         if ($__expired) {
             $_SESSION = [];
@@ -227,8 +229,6 @@ unset(
     $__storageDir,
     $__normalizedStorage,
     $__now,
-    $__authenticatedAt,
-    $__lastSeenAt,
     $__expired,
     $__lastRotation,
     $__statelessRequest

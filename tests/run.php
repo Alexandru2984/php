@@ -18,6 +18,7 @@ $_SESSION = [];
 $_POST = [];
 $_SERVER = [];
 
+require dirname(__DIR__) . '/session-policy.php';
 require dirname(__DIR__) . '/lib.php';
 require dirname(__DIR__) . '/api.php';
 
@@ -34,6 +35,63 @@ function check(bool $condition, string $description): void
     }
     $failures++;
     fwrite(STDERR, "\nFAIL: {$description}\n");
+}
+
+$sessionNow = 2_000_000_000;
+$validAdminSession = [
+    'is_admin' => true,
+    'admin_authenticated_at' => $sessionNow - 3600,
+    'admin_last_seen_at' => $sessionNow - 300,
+];
+check(
+    admin_session_is_current($validAdminSession, $sessionNow, 1800, 43200),
+    'coherent admin session is current'
+);
+$idleBoundarySession = $validAdminSession;
+$idleBoundarySession['admin_last_seen_at'] = $sessionNow - 1800;
+check(
+    admin_session_is_current($idleBoundarySession, $sessionNow, 1800, 43200),
+    'admin session remains current at the idle boundary'
+);
+$idleExpiredSession = $idleBoundarySession;
+$idleExpiredSession['admin_last_seen_at']--;
+check(
+    !admin_session_is_current($idleExpiredSession, $sessionNow, 1800, 43200),
+    'admin session expires beyond the idle boundary'
+);
+$absoluteExpiredSession = $validAdminSession;
+$absoluteExpiredSession['admin_authenticated_at'] = $sessionNow - 43201;
+check(
+    !admin_session_is_current($absoluteExpiredSession, $sessionNow, 1800, 43200),
+    'admin session expires beyond the absolute boundary'
+);
+foreach ([
+    'missing timestamps' => ['is_admin' => true],
+    'numeric-string timestamp' => [
+        'admin_authenticated_at' => (string) ($sessionNow - 600),
+        'admin_last_seen_at' => $sessionNow - 300,
+    ],
+    'negative timestamp' => [
+        'admin_authenticated_at' => -1,
+        'admin_last_seen_at' => $sessionNow - 300,
+    ],
+    'future authentication' => [
+        'admin_authenticated_at' => $sessionNow + 1,
+        'admin_last_seen_at' => $sessionNow + 1,
+    ],
+    'future last-seen time' => [
+        'admin_authenticated_at' => $sessionNow - 300,
+        'admin_last_seen_at' => $sessionNow + 1,
+    ],
+    'reversed timestamps' => [
+        'admin_authenticated_at' => $sessionNow - 100,
+        'admin_last_seen_at' => $sessionNow - 200,
+    ],
+] as $case => $session) {
+    check(
+        !admin_session_is_current($session, $sessionNow, 1800, 43200),
+        "admin session rejects {$case}"
+    );
 }
 
 check(e('<script>"x"</script>') === '&lt;script&gt;&quot;x&quot;&lt;/script&gt;', 'HTML is escaped');

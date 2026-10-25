@@ -81,6 +81,10 @@ cannot publish hidden content through this action.
 
 - All report and moderation mutations require same-origin POST plus a session CSRF
   token; moderation additionally requires the expiring admin session.
+- Admin privilege expires after 30 idle minutes or 12 total hours. Strict session mode
+  rejects unknown client-selected IDs; login, expiry and logout destroy the old ID,
+  active sessions receive a new ID every 15 minutes, and privilege transitions rotate
+  CSRF. Missing, non-integer, negative, reversed or future timestamps fail closed.
 - IDs, states, categories and reasons are strict scalar allow-lists. Message content
   remains escaped in both the public feed and admin workspace.
 - The public form is functional without JavaScript and keeps 44-pixel touch targets

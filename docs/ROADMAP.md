@@ -5,12 +5,17 @@ stage must be an atomic commit (or small reviewed commit series), include tests 
 have a rollback path. Production changes happen only after the stage passes its exit
 criteria.
 
-## Status after the 2026-10-24 discovery and curation release
+## Status after the 2026-10-26 discovery and session-hardening releases
 
 - **Deployed:** Stages 0–2 core controls: isolated build/test, recoverable backup,
   fail-closed configuration, persistent auth throttling, versioned migrations,
   security events, immutable releases, dedicated FPM identity, strict nginx routing,
   origin denial and nonce-based CSP.
+- **Stage 1 session lifecycle delivered:** PHP strict mode rejects attacker-selected
+  identifiers; admin privilege has a 30-minute idle and 12-hour absolute lifetime;
+  login, periodic renewal, expiry and logout destroy the preceding ID and privilege
+  transitions rotate CSRF. Invalid or incoherent timestamps fail closed, with unit
+  boundary cases and real-cookie HTTP regression coverage.
 - **Partially delivered:** Stage 3 now has category-only abuse reports, a review queue,
   five moderation states, reversible actions, controlled reasons, privacy/about UI,
   identifier minimisation and append-only admin audit; Stage 5 now has RSS/permalinks,
@@ -35,8 +40,8 @@ criteria.
   can hide that message from every first-party public surface; capability destruction,
   append-only audit and database triggers make the decision non-republishable. This is
   deliberately documented as soft withdrawal, not a complete Article 17 purge.
-- **Next priority:** restore Google Drive capacity or replace the degraded second
-  off-host provider, add a second offline recovery recipient plus a human off-host drill,
+- **Next priority:** replace rclone's retiring shared Google OAuth client with a
+  dedicated least-privilege client, add a second offline recovery recipient plus a human off-host drill,
   an incident-response tabletop, manual screen-reader/200% zoom checks,
   retention/export/erasure operations, dedicated post/API/search edge limits,
   expiring allow/block controls and optional risk-triggered Turnstile.

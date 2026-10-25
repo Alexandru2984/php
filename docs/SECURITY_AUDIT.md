@@ -61,7 +61,7 @@ incomplete.
 | S-04 | High | Configuration fails open for the IP-hash secret. | If `APP_SECRET` is absent, the code silently uses the public string `insecure-default`. This makes stored client hashes linkable and predictable. | Refuse startup in production when required secrets are missing, malformed or weak. Validate the admin password hash as well. |
 | S-05 | High | There is no reliable production release boundary. | The checked-out `main` branch is the nginx document root, so editing it changes production before tests complete and leaves partial-release windows. | Build in a separate worktree, test, snapshot, switch an atomic `current` symlink, health-check, and roll back automatically on failure. |
 | S-06 | Medium | Detection is operational; response rehearsal remains incomplete. | Security/moderation events, five-minute health alerts, Telegram delivery/recovery and an IR runbook are deployed. A formal tabletop and measured delivery SLO are not complete. | Run credential-compromise and data-loss tabletops; record delivery and response times quarterly. |
-| S-07 | Medium | Admin sessions lack explicit idle and absolute expiry. | Login rotates the session ID, but admin state persists until PHP garbage collection and there is no server-enforced admin lifetime. PHP strict-session mode is disabled globally. | Enable strict session mode, enforce idle/absolute timeouts, rotate CSRF on privilege changes and fully destroy logout sessions. |
+| S-07 | Low | Admin session lifecycle is bounded; clean theft remains hard to distinguish from the operator. | Strict mode rejects uninitialized IDs. Login, 15-minute renewal, expiry and logout replace the session ID and destroy its predecessor; CSRF rotates at both privilege transitions. Admin privilege expires after 30 idle minutes or 12 total hours, and malformed, negative, reversed or future timestamps fail closed. Unit boundary cases and real-cookie HTTP tests cover fixation, login, expiry and logout. A valid cookie stolen between rotations can still act until expiry and may resemble legitimate use. | Keep TLS/edge and browser hygiene strong, alert on impossible admin activity where privacy-safe, invalidate all sessions during credential response, and complete the credential-compromise tabletop. |
 | S-08 | Medium | Input type confusion can create warnings and unintended values. | Array values for `q`, `page`, `author`, `message` or `password` are cast instead of rejected. This can generate log noise or accept the literal value `Array`. | Accept only expected scalar types, use centralized input helpers, and test malformed nested parameters. |
 | S-09 | Medium | Database DDL runs on every web request and migration errors are swallowed. | `CREATE`/`ALTER`/index statements execute during bootstrap; every migration exception is treated as "column exists". Disk, permission and corruption errors can be hidden. | Move schema changes to versioned, transactional CLI migrations and keep web requests read/write-data only. |
 | S-10 | Medium | Cloudflare JavaScript Detection conflicts with CSP. | The live edge injects an inline challenge script while `script-src` disallows inline code. Browsers will block it, reducing bot signal quality. | Keep `unsafe-inline` forbidden. Use a per-response CSP nonce that Cloudflare can propagate, or intentionally disable injection for this hostname. |
@@ -79,6 +79,73 @@ incomplete.
 | S-22 | Low | Local drafts improve resilience but can leave message text on a shared device. | Draft storage is off by default, explicitly device-scoped in the UI, bounded to server field limits, expires after 24 hours and is deleted after successful submission or on request. The text-only preview uses DOM `textContent`; browser tests prove markup does not create elements or execute. A user with access to the same unlocked browser profile can still read an opted-in draft. | Keep opt-in off by default, do not sync drafts server-side, retain the clear control and re-evaluate before adding accounts, cloud sync or longer retention. |
 | S-23 | Low | Featured-message curation adds an admin-controlled ranking signal. | A stolen admin session could promote one already-public message, but cannot feature moderated content. Same-origin CSRF-protected POST, an expiring admin session, a one-row database constraint, append-only feature/unfeature audit and automatic clearing on moderation bound the impact. | Monitor unexpected feature audit events, rotate the admin credential/session on compromise and retain the one-message/public-only invariant. |
 | S-24 | Medium | An owner capability can irreversibly hide one future message but is not a complete erasure channel. | A 256-bit capability is held in an HttpOnly, Secure-in-production, SameSite Strict cookie scoped to one private path; only its HMAC is stored. Withdrawal needs session and capability CSRF, destroys the token, clears temporary identifiers, is audited and cannot be republished. Theft of a valid browser cookie or full same-origin execution can still withdraw that one message, while backups and the soft-deleted text remain. | Run the owner-token abuse tabletop, publish the dedicated privacy contact and authenticated statutory-erasure procedure, and assess successful-withdrawal anomaly detection without collecting new identity data. |
+
+## CISO review: admin session lifecycle
+
+**Date:** 2026-10-26
+
+**Verdict:** 🟡 MITIGATE THEN SHIP — the application control is fail-closed and
+regression-tested; stolen-session anomaly detection and the human credential drill
+remain operational gaps.
+
+### 1. Threat model (STRIDE top three)
+
+1. **Spoofing/elevation (low likelihood, high impact):** theft of a live `gbsid`
+   could grant moderator privilege. TLS, `Secure`, `HttpOnly`, `SameSite=Strict`,
+   same-origin mutation checks, CSRF, a 30-minute idle limit, a 12-hour absolute
+   limit and 15-minute ID renewal reduce exposure; XSS, browser or edge compromise
+   can still bypass several layers together.
+2. **Session fixation/replay (low likelihood, high impact):** an attacker tries to
+   choose or reuse an identifier across login, expiry or logout. PHP strict mode
+   rejects unknown IDs, every privilege boundary regenerates the ID while deleting
+   its predecessor, and the HTTP suite proves the old session file is unavailable.
+3. **Tampering (low likelihood, medium impact):** corrupt serialized state attempts
+   to extend lifetime with negative, future, reversed or string timestamps. The
+   policy accepts only coherent integers and fails closed at both time bounds.
+
+These controls follow the PHP project's
+[session security guidance](https://www.php.net/manual/en/features.session.security.management.php),
+including strict mode, timestamp-managed lifetime and ID regeneration.
+
+### 2. Blast radius and annual-loss input
+
+A stolen admin session can review category-only reports, promote an already-public
+message and make reversible moderation changes to all guestbook records. It cannot
+write a release, retrieve plaintext network identifiers, permanently purge records
+or cross the dedicated Unix/FPM boundary by design. There were three production
+records at review time. No monetary ALE is invented: responsible calculation still
+requires takeover frequency, operator response time/rate, downtime value, legal cost
+and notification population/cost.
+
+### 3. Detection and MTTD
+
+Failed/blocked logins and successful login/logout and moderation outcomes enter
+bounded security or append-only audit records. Five recent admin failures page through
+the five-minute health cycle, so that abuse path targets an MTTD of five minutes plus
+timer jitter. A clean stolen-cookie action can look valid; its honest MTTD is unknown
+until an operator notices an unexpected audit event. Session IDs, CSRF values and
+message text never enter the alert payload.
+
+### 4. Response, runbook and exercise
+
+The incident-response runbook covers containment, admin credential rotation, global
+session invalidation, evidence preservation, audit review and recovery. The automated
+suite rehearses fixation refusal and old-ID destruction at login, timeout and logout.
+A human credential-compromise tabletop with measured containment time is still due;
+this prevents a green operational verdict.
+
+### 5. Regulatory window
+
+Session compromise can affect public content and expose moderation metadata. If the
+event qualifies as a personal-data breach, the controller still needs documented
+assessment against GDPR's 72-hour supervisory-authority notification window. This
+code change does not replace legal assessment or the incomplete data-subject workflow.
+
+### 6. Vendors and supply chain
+
+This hardening adds one first-party PHP policy module and no package, cookie, vendor,
+processor, external API, credential or new network flow. Existing Cloudflare, VPS,
+self-hosted analytics and Telegram monitoring boundaries are unchanged.
 
 ## CISO review: private author withdrawal
 
@@ -277,7 +344,8 @@ workflow are required before calling privacy governance complete.
 - SQL calls handling user input use prepared statements; rendered message content,
   author names and queries are HTML-escaped.
 - POST actions use CSRF tokens and cookies are `Secure`, `HttpOnly`, and
-  `SameSite=Strict`; successful login regenerates the session ID.
+  `SameSite=Strict`; strict mode rejects chosen IDs, admin privilege has 30-minute
+  idle and 12-hour absolute bounds, and login/expiry/logout replace the session ID.
 - Direct origin access is denied, HTTP redirects to HTTPS, TLS is limited to 1.2/1.3,
   and sensitive paths return `403`/`404` through the public hostname.
 - The daily systemd backup completed successfully during this audit and creates

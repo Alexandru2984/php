@@ -17,6 +17,12 @@ cleanup() {
 }
 trap cleanup EXIT
 
+cookie_value() {
+    local jar="$1"
+    local name="$2"
+    awk -v cookie_name="${name}" '$6 == cookie_name { value = $7 } END { print value }' "${jar}"
+}
+
 set +e
 APP_ENV=production APP_SECRET=invalid php -r \
     "define('GUESTBOOK_APP', true); require '${repo_dir}/config.php';" \
@@ -246,6 +252,8 @@ privacy_etag="$(sed -n 's/^ETag: \(.*\)\r$/\1/ip' "${tmp_dir}/privacy-headers.tx
     --data 'x=1' "${APP_ORIGIN}/privacy")" == 405 ]]
 [[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
     "${APP_ORIGIN}/public-info.php")" == 404 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+    "${APP_ORIGIN}/session-policy.php")" == 404 ]]
 if find "${web_session_dir}" -type f -print -quit | grep --quiet .; then
     echo 'Sessionless public routes unexpectedly created a PHP session.' >&2
     exit 1
@@ -253,6 +261,19 @@ fi
 [[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/archive/2026/10")" == 404 ]]
 openapi_body="$(curl --silent --show-error --fail "${APP_ORIGIN}/openapi.json")"
 grep --quiet '"/api/v1/messages"' <<<"${openapi_body}"
+
+forged_session_id='attackerchosenid0123456789abcdef'
+forged_cookie_jar="${tmp_dir}/forged-cookies.txt"
+forged_headers="${tmp_dir}/forged-headers.txt"
+curl --silent --show-error --output /dev/null \
+    --dump-header "${forged_headers}" \
+    --cookie "gbsid=${forged_session_id}" \
+    --cookie-jar "${forged_cookie_jar}" \
+    "${APP_ORIGIN}/"
+strict_session_id="$(cookie_value "${forged_cookie_jar}" gbsid)"
+[[ -n "${strict_session_id}" && "${strict_session_id}" != "${forged_session_id}" ]]
+[[ ! -e "${web_session_dir}/sess_${forged_session_id}" ]]
+grep --ignore-case --quiet '^Set-Cookie: gbsid=' "${forged_headers}"
 
 cookie_jar="${tmp_dir}/cookies.txt"
 html="$(curl --silent --show-error --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/")"
@@ -630,6 +651,9 @@ wrong_login_code="$(request_code \
 
 login_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/")"
 login_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${login_html}" | head -n 1)"
+pre_login_session_id="$(cookie_value "${cookie_jar}" gbsid)"
+[[ "${login_csrf}" =~ ^[0-9a-f]{64}$ ]]
+[[ -n "${pre_login_session_id}" ]]
 good_login_code="$(request_code \
     --cookie "${cookie_jar}" \
     --cookie-jar "${cookie_jar}" \
@@ -639,6 +663,9 @@ good_login_code="$(request_code \
     --data-urlencode 'password=smoke-test-password' \
     "${APP_ORIGIN}/")"
 [[ "${good_login_code}" == 303 ]]
+admin_session_id="$(cookie_value "${cookie_jar}" gbsid)"
+[[ -n "${admin_session_id}" && "${admin_session_id}" != "${pre_login_session_id}" ]]
+[[ ! -e "${web_session_dir}/sess_${pre_login_session_id}" ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM rate_limits WHERE scope = 'admin-login';")" == 0 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM security_events WHERE event_type = 'admin.login';")" == 2 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM admin_audit_events WHERE event_type = 'admin.login';")" == 1 ]]
@@ -651,6 +678,7 @@ grep --quiet 'Review score ' <<<"${admin_html}"
 grep --quiet 'Recent duplicate' <<<"${admin_html}"
 
 admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
+[[ "${admin_csrf}" =~ ^[0-9a-f]{64}$ && "${admin_csrf}" != "${login_csrf}" ]]
 feature_code="$(request_code \
     --cookie "${cookie_jar}" \
     --header "Origin: ${APP_ORIGIN}" \
@@ -801,5 +829,72 @@ restore_withdrawn_code="$(request_code \
     "${APP_ORIGIN}/")"
 [[ "${restore_withdrawn_code}" == 303 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status FROM messages WHERE id = ${message_id};")" == deleted ]]
+
+expiring_session_id="$(cookie_value "${cookie_jar}" gbsid)"
+[[ -n "${expiring_session_id}" && -f "${web_session_dir}/sess_${expiring_session_id}" ]]
+# The snippet edits only the isolated smoke-test session to simulate 30 minutes idle.
+# shellcheck disable=SC2016
+php -d "session.save_path=${web_session_dir}" -d session.use_strict_mode=1 -r '
+    session_name("gbsid");
+    session_id($argv[1]);
+    session_start();
+    $_SESSION["admin_authenticated_at"] = time() - 1901;
+    $_SESSION["admin_last_seen_at"] = time() - 1901;
+    session_write_close();
+' "${expiring_session_id}"
+expired_headers="${tmp_dir}/expired-session-headers.txt"
+expired_html="$(curl --silent --show-error \
+    --dump-header "${expired_headers}" \
+    --cookie "${cookie_jar}" \
+    --cookie-jar "${cookie_jar}" \
+    "${APP_ORIGIN}/")"
+grep --fixed-strings --quiet 'Your admin session expired. Please sign in again.' <<<"${expired_html}"
+if grep --fixed-strings --quiet 'Sign out' <<<"${expired_html}"; then
+    echo 'Expired admin session retained its privilege.' >&2
+    exit 1
+fi
+renewed_anonymous_id="$(cookie_value "${cookie_jar}" gbsid)"
+[[ -n "${renewed_anonymous_id}" && "${renewed_anonymous_id}" != "${expiring_session_id}" ]]
+[[ ! -e "${web_session_dir}/sess_${expiring_session_id}" ]]
+grep --ignore-case --quiet '^Set-Cookie: gbsid=' "${expired_headers}"
+
+expired_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${expired_html}" | head -n 1)"
+[[ "${expired_csrf}" =~ ^[0-9a-f]{64}$ && "${expired_csrf}" != "${admin_csrf}" ]]
+relogin_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --cookie-jar "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${expired_csrf}" \
+    --data-urlencode 'action=login' \
+    --data-urlencode 'password=smoke-test-password' \
+    "${APP_ORIGIN}/")"
+[[ "${relogin_code}" == 303 ]]
+logout_session_id="$(cookie_value "${cookie_jar}" gbsid)"
+[[ -n "${logout_session_id}" && "${logout_session_id}" != "${renewed_anonymous_id}" ]]
+[[ ! -e "${web_session_dir}/sess_${renewed_anonymous_id}" ]]
+
+logout_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
+logout_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${logout_html}" | head -n 1)"
+[[ "${logout_csrf}" =~ ^[0-9a-f]{64}$ ]]
+logout_headers="${tmp_dir}/logout-headers.txt"
+logout_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --cookie-jar "${cookie_jar}" \
+    --dump-header "${logout_headers}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${logout_csrf}" \
+    --data-urlencode 'action=logout' \
+    "${APP_ORIGIN}/")"
+[[ "${logout_code}" == 303 ]]
+post_logout_session_id="$(cookie_value "${cookie_jar}" gbsid)"
+[[ -n "${post_logout_session_id}" && "${post_logout_session_id}" != "${logout_session_id}" ]]
+[[ ! -e "${web_session_dir}/sess_${logout_session_id}" ]]
+grep --ignore-case --quiet '^Set-Cookie: gbsid=' "${logout_headers}"
+signed_out_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
+grep --fixed-strings --quiet 'Signed out.' <<<"${signed_out_html}"
+if grep --fixed-strings --quiet 'Sign out' <<<"${signed_out_html}"; then
+    echo 'Logged-out session retained its privilege.' >&2
+    exit 1
+fi
 
 echo 'HTTP smoke tests passed.'
