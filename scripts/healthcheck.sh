@@ -242,9 +242,11 @@ if ! curl "${curl_args[@]}" "${base_url}/feed.json" | "${php_cli[@]}" -r '
     fail json-feed schema-invalid
 fi
 
+sitemap_document="$(curl "${curl_args[@]}" "${base_url}/sitemap.xml")" \
+    || fail seo sitemap-unavailable
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
-if ! curl "${curl_args[@]}" "${base_url}/sitemap.xml" | "${php_cli[@]}" -r '
+if ! "${php_cli[@]}" -r '
     $value = simplexml_load_string(stream_get_contents(STDIN));
     if ($value === false || $value->getName() !== "urlset") { exit(1); }
     $locations = [];
@@ -252,7 +254,7 @@ if ! curl "${curl_args[@]}" "${base_url}/sitemap.xml" | "${php_cli[@]}" -r '
     foreach (["/about", "/privacy", "/moderation"] as $path) {
         if (!in_array($argv[1] . $path, $locations, true)) { exit(1); }
     }
-' "${base_url}"; then
+' "${base_url}" <<<"${sitemap_document}"; then
     fail seo sitemap-invalid
 fi
 
@@ -288,7 +290,7 @@ unset robots
 
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
-archive_path="$(curl "${curl_args[@]}" "${base_url}/sitemap.xml" | "${php_cli[@]}" -r '
+archive_path="$("${php_cli[@]}" -r '
     $value = simplexml_load_string(stream_get_contents(STDIN));
     if ($value === false) { exit(1); }
     $prefix = $argv[1] . "/archive/";
@@ -303,17 +305,29 @@ archive_path="$(curl "${curl_args[@]}" "${base_url}/sitemap.xml" | "${php_cli[@]
             break;
         }
     }
-' "${base_url}")" || fail seo archive-discovery-invalid
+' "${base_url}" <<<"${sitemap_document}")" || fail seo archive-discovery-invalid
 if [[ -n "${archive_path}" ]]; then
+    [[ "${sitemap_document}" == *"<loc>${base_url}/archive</loc>"* ]] \
+        || fail seo archive-index-discovery-missing
+    archive_index_html="$(curl "${curl_args[@]}" "${base_url}/archive")" \
+        || fail seo archive-index-unavailable
+    [[ "${archive_index_html}" == *"rel=\"canonical\" href=\"${base_url}/archive\""* ]] \
+        || fail seo archive-index-canonical-missing
+    [[ "${archive_index_html}" == *'itemtype="https://schema.org/CollectionPage"'* ]] \
+        || fail seo archive-index-schema-missing
+    [[ "${archive_index_html}" == *'itemtype="https://schema.org/ItemList"'* ]] \
+        || fail seo archive-index-list-schema-missing
+    [[ "${archive_index_html}" == *"href=\"${archive_path}\""* ]] \
+        || fail seo archive-index-month-missing
     archive_html="$(curl "${curl_args[@]}" "${base_url}${archive_path}")" \
         || fail seo archive-unavailable
     [[ "${archive_html}" == *"rel=\"canonical\" href=\"${base_url}${archive_path}\""* ]] \
         || fail seo archive-canonical-missing
     [[ "${archive_html}" == *'itemtype="https://schema.org/BreadcrumbList"'* ]] \
         || fail seo archive-breadcrumb-missing
-    unset archive_html
+    unset archive_index_html archive_html
 fi
-unset archive_path
+unset archive_path sitemap_document
 
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016

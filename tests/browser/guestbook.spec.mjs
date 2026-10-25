@@ -275,6 +275,24 @@ test('SEO metadata, canonical permalinks and structured data match visible conte
   await expect(archiveLink).toContainText('1 message');
   const archiveHref = await archiveLink.getAttribute('href');
   expect(archiveHref).toMatch(/^\/archive\/20\d{2}\/(?:0[1-9]|1[0-2])$/);
+  await expect(page.getByRole('link', { name: 'View full archive' })).toHaveAttribute('href', '/archive');
+
+  await page.setViewportSize({ width: 320, height: 812 });
+  await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+  await page.goto('/archive');
+  await expect(page).toHaveTitle('Archive · Micuțu Guestbook');
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/archive$/);
+  await expect(page.locator('main[itemtype="https://schema.org/CollectionPage"]')).toHaveCount(1);
+  await expect(page.locator('[itemtype="https://schema.org/ItemList"]')).toHaveCount(1);
+  await expect(page.getByRole('heading', { level: 1, name: 'Guestbook archive' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Archive');
+  await expect(page.getByRole('navigation', { name: 'Site information' }).getByRole('link', { name: 'Archive' }))
+    .toHaveAttribute('aria-current', 'page');
+  await expect(page.locator(`.archive-index-link[href="${archiveHref}"]`)).toContainText('1 message');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  const archiveIndexResults = await new AxeBuilder({ page }).withTags(wcagTags).analyze();
+  expect(violationSummary(archiveIndexResults), 'archive index WCAG violations').toEqual([]);
+
   await page.goto(archiveHref);
   await expect(page).toHaveTitle(/archive · Micuțu Guestbook$/);
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', new RegExp(`${archiveHref}$`));

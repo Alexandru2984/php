@@ -2,9 +2,9 @@
 
 ## Indexable surface
 
-The canonical site name is **Micuțu Guestbook**. The homepage, each published
-message permalink, each populated UTC calendar archive and each non-search stream
-page are indexable. Search-result and authenticated-admin views emit `noindex, follow`.
+The canonical site name is **Micuțu Guestbook**. The homepage, central archive index,
+each published message permalink, each populated UTC calendar archive and each
+non-search stream page are indexable. Search-result and authenticated-admin views emit `noindex, follow`.
 A missing, empty or fully moderated archive and a missing, hidden, pending, spam or
 deleted permalink return `404`, avoiding thin/soft-404 pages and moderation-state
 disclosure.
@@ -14,6 +14,7 @@ Canonical URLs are absolute and deterministic:
 - homepage: `https://php.micutu.com/`;
 - published message: `https://php.micutu.com/messages/ID`;
 - recent stream page: `https://php.micutu.com/?page=N`;
+- archive index: `https://php.micutu.com/archive`;
 - monthly archive: `https://php.micutu.com/archive/YYYY/MM[?page=N]`;
 - public information: `https://php.micutu.com/about`, `/privacy` and `/moderation`;
 - search results preserve their query in a self-canonical URL but remain `noindex`.
@@ -30,7 +31,8 @@ checks pin the output digest and dimensions.
 ## Discovery documents
 
 - `/sitemap.xml` is sessionless, conditionally cacheable and contains the homepage,
-  the three public information pages, populated monthly archives and published
+  the three public information pages, the central archive index when non-empty,
+  populated monthly archives and published
   message permalinks. Pending or
   moderated records are excluded at the SQL boundary. The message budget dynamically
   reserves space for at most 120 archive URLs and keeps the total at or below the
@@ -44,7 +46,12 @@ checks pin the output digest and dimensions.
   correcting the former `micutu.com/sitemap.xml` reference.
 - Legacy `/?format=rss` requests permanently redirect to `/feed.xml`.
 
-The homepage exposes the newest 12 populated UTC months with public-only counts.
+The homepage exposes the newest 12 populated UTC months with public-only counts and a
+standard crawlable link to the full archive. `/archive` groups at most 120 populated
+months by year, exposes only month/count aggregates selected at the published-status
+SQL boundary, uses `CollectionPage` plus visible `ItemList` microdata, and returns a
+real `404` when no public month exists. It is sessionless, sends a strong ETag and
+`no-transform`, and disappears from the sitemap with the final public message.
 Monthly pages use indexed half-open timestamp ranges, chronological ordering, unique
 titles/descriptions, self-canonicals, sequential pagination links and visible
 `BreadcrumbList` markup. Arbitrary query mixing fails closed and an empty month is a
@@ -87,6 +94,7 @@ message text never enter share metadata, and no social SDK or outbound API is lo
 
 This implementation follows current primary guidance from
 [Google Search Central on sitemaps](https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap),
+[crawlable links](https://developers.google.com/search/docs/crawling-indexing/links-crawlable),
 [canonical URLs](https://developers.google.com/search/docs/crawling-indexing/canonicalization),
 [pagination and incremental page loading](https://developers.google.com/search/docs/specialty/ecommerce/pagination-and-incremental-page-loading),
 [site names](https://developers.google.com/search/docs/appearance/site-names),
@@ -95,17 +103,19 @@ This implementation follows current primary guidance from
 [Open Graph image properties](https://ogp.me/),
 [JSON Feed 1.1](https://www.jsonfeed.org/version/1.1/),
 [Schema.org AboutPage](https://schema.org/AboutPage),
+[Schema.org CollectionPage](https://schema.org/CollectionPage),
+[Schema.org ItemList](https://schema.org/ItemList),
 [Schema.org WebPage](https://schema.org/WebPage), and
 [discussion-forum structured data](https://developers.google.com/search/docs/appearance/structured-data/discussion-forum).
 
 ## CISO review
 
-**Date:** 2026-10-25
+**Date:** 2026-10-26
 
 ### Threat model
 
-1. **Information disclosure — medium likelihood/high impact:** a sitemap, calendar
-   archive, feed or structured-data projection could expose pending or moderated
+1. **Information disclosure — medium likelihood/high impact:** a sitemap, central or
+   monthly calendar archive, feed or structured-data projection could expose pending or moderated
    content. Mitigation: every generator and archive query selects
    `status = 'published'`; HTTP tests hide a live record and prove immediate removal
    from every discovery surface and a 404 for its now-empty month.
@@ -116,7 +126,7 @@ This implementation follows current primary guidance from
    length-bounded and structured fields exactly mirror visible content.
 3. **Denial of service — low likelihood/medium impact:** crawler bursts could repeatedly
    generate large XML documents or archive queries. Mitigation: a strict 50,000-URL
-   sitemap budget, 120-month sitemap/12-month UI bounds, indexed status/timestamp
+   sitemap budget, a 120-month archive-index/sitemap bound, a 12-month homepage bound, indexed status/timestamp
    ranges, normal page-size limits and the existing edge request limit.
 4. **Accidental disclosure — low likelihood/medium impact:** convenience sharing could
    silently leak visitor text or navigation state. Mitigation: no automatic action,
@@ -134,17 +144,19 @@ evidence does not support inventing a dollar value.
 
 ### Detection and response
 
-The five-minute health probe validates RSS, JSON Feed, sitemap XML with all three
-public information URLs, the sessionless Privacy page contract, a discovered
-calendar archive, the exact robots sitemap directive and a current clean permalink
-through Cloudflare. CI separately proves the
+The five-minute health probe fetches the sitemap once and validates RSS, JSON Feed,
+sitemap XML with all three public information URLs, the sessionless Privacy page
+contract, the central archive index, a discovered calendar month, the exact robots
+sitemap directive and a current clean permalink through Cloudflare. CI separately proves the
 legacy redirect is sessionless, canonical paths reject mixed parameters, hidden
-records return 404, and validates cache headers, XML, browser-visible microdata and
+records remove both archive levels, and validates cache headers, XML, browser-visible microdata and
 explicit share invocation. On leakage, hide the record, purge the affected Cloudflare cache object,
 remove the URL through the relevant search console when necessary, preserve logs and
 follow the [incident-response runbook](INCIDENT_RESPONSE.md). The current MTTD target
-is five minutes plus timer jitter. A search-console review and crawler-leak tabletop
-have not yet been completed and remain manual follow-ups.
+is five minutes plus timer jitter. An automated engineering disclosure rehearsal on
+26 October 2026 hid the final published fixture and proved that `/archive`, its month
+and both sitemap entries disappeared. A human operator/search-console cache-removal
+tabletop has not yet been completed and remains a manual follow-up.
 
 ### Regulatory and vendors
 
@@ -158,8 +170,9 @@ calendar archive adds zero vendors, subprocessors, cookies, packages or outbound
 
 ## Verdict and rollback
 
-**Verdict:** 🟡 MITIGATE THEN SHIP. The technical leakage controls and rollback are
-present; data-subject operations and post-deploy Search Console validation remain.
+**Verdict:** 🟡 MITIGATE THEN SHIP. The central archive adds no new data class and its
+technical leakage/DoS controls and rollback are present; data-subject operations and
+post-deploy Search Console validation remain.
 
 The change adds no schema migration, package or vendor. Worst-case blast radius
 remains every non-public message if the publication predicate regresses; the route

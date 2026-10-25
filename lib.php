@@ -145,7 +145,9 @@ function public_sitemap_xml(PDO $pdo): string
 {
     $infoPages = public_info_pages();
     $archiveMonths = public_archive_months($pdo);
-    $messageLimit = 49999 - count($infoPages) - count($archiveMonths);
+    $hasArchiveIndex = $archiveMonths !== [];
+    $messageLimit = 49999 - count($infoPages) - count($archiveMonths)
+        - ($hasArchiveIndex ? 1 : 0);
     $stmt = $pdo->prepare(
         "SELECT id,
                 MAX(
@@ -185,6 +187,13 @@ function public_sitemap_xml(PDO $pdo): string
     $xml .= "</url>\n";
     foreach ($infoPages as $infoPage) {
         $xml .= '  <url><loc>' . xml_e(APP_ORIGIN . $infoPage['path']) . "</loc></url>\n";
+    }
+    if ($hasArchiveIndex) {
+        $xml .= '  <url><loc>' . xml_e(APP_ORIGIN . '/archive') . '</loc>';
+        if ($latest !== null) {
+            $xml .= '<lastmod>' . utc_iso8601($latest) . '</lastmod>';
+        }
+        $xml .= "</url>\n";
     }
     foreach ($archiveMonths as $archiveMonth) {
         if (preg_match('/\A([12][0-9]{3})-(0[1-9]|1[0-2])\z/D', (string) $archiveMonth['archive_month'], $match) !== 1) {

@@ -283,6 +283,7 @@ $seoDb->exec(
 $sitemapFixture = public_sitemap_xml($seoDb);
 check(
     str_contains($sitemapFixture, 'https://php.micutu.com/messages/1')
+        && str_contains($sitemapFixture, '<loc>https://php.micutu.com/archive</loc>')
         && str_contains($sitemapFixture, 'https://php.micutu.com/archive/2026/10')
         && str_contains($sitemapFixture, 'https://php.micutu.com/about')
         && str_contains($sitemapFixture, 'https://php.micutu.com/privacy')
@@ -298,7 +299,7 @@ check(
         && ($archiveMonthFixture[0]['archive_month'] ?? null) === '2026-10'
         && (int) ($archiveMonthFixture[0]['message_count'] ?? 0) === 1
         && ($archiveMonthFixture[0]['updated_at'] ?? null) === '2026-10-23 10:00:00'
-        && substr_count($sitemapFixture, '<url>') === 6,
+        && substr_count($sitemapFixture, '<url>') === 7,
     'archive summaries and sitemap URL budget reserve static and published URLs'
 );
 $archivePlan = $seoDb->query(

@@ -98,6 +98,7 @@ $managedStatusLabel = match ($managedStatus) {
         <footer class="site-footer">
             <nav aria-label="Site information">
                 <a href="/">Guestbook</a>
+                <a href="/archive">Archive</a>
                 <a href="/privacy">Privacy</a>
                 <a href="/moderation">Moderation</a>
             </nav>

@@ -116,6 +116,10 @@ grep --quiet '"code":"invalid_limit"' "${tmp_dir}/api-error.json"
 [[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/not-a-route")" == 404 ]]
 [[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/archive/2026/00")" == 404 ]]
 [[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/archive/2026/13")" == 404 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/archive")" == 404 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/archive?unexpected=1")" == 400 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' --data 'x=1' "${APP_ORIGIN}/archive")" == 405 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/archive-index.php")" == 404 ]]
 
 sitemap_headers="${tmp_dir}/sitemap-headers.txt"
 sitemap_body="${tmp_dir}/sitemap.xml"
@@ -302,6 +306,32 @@ sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
      INSERT INTO messages (author, content, created_at, status)
      SELECT 'Archive fixture', 'Temporary archive fixture ' || x,
             printf('2025-07-%02d 12:00:00', x), 'published' FROM n;"
+archive_index_headers="${tmp_dir}/archive-index-headers.txt"
+archive_index_body="${tmp_dir}/archive-index.html"
+[[ "$(curl --silent --show-error --dump-header "${archive_index_headers}" \
+    --output "${archive_index_body}" --write-out '%{http_code}' "${APP_ORIGIN}/archive")" == 200 ]]
+grep --ignore-case --quiet '^Content-Type: text/html; charset=utf-8' "${archive_index_headers}"
+grep --ignore-case --quiet '^Cache-Control: public, max-age=30, stale-while-revalidate=60, no-transform' "${archive_index_headers}"
+if grep --ignore-case --quiet '^Set-Cookie:' "${archive_index_headers}"; then
+    echo 'Sessionless archive index unexpectedly emitted a cookie.' >&2
+    exit 1
+fi
+grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}/archive\">" "${archive_index_body}"
+grep --fixed-strings --quiet 'itemtype="https://schema.org/CollectionPage"' "${archive_index_body}"
+grep --fixed-strings --quiet 'itemtype="https://schema.org/ItemList"' "${archive_index_body}"
+grep --fixed-strings --quiet 'href="/archive/2025/07"' "${archive_index_body}"
+grep --fixed-strings --quiet '11 messages' "${archive_index_body}"
+if grep --fixed-strings --quiet 'Temporary archive fixture' "${archive_index_body}"; then
+    echo 'Archive index exposed message content.' >&2
+    exit 1
+fi
+archive_index_etag="$(sed -n 's/^ETag: \(.*\)\r$/\1/ip' "${archive_index_headers}")"
+[[ "${archive_index_etag}" =~ ^\"[0-9a-f]{64}\"$ ]]
+[[ "$(curl --silent --show-error --output "${tmp_dir}/archive-index-conditional.html" \
+    --write-out '%{http_code}' --header "If-None-Match: ${archive_index_etag}" \
+    "${APP_ORIGIN}/archive")" == 304 ]]
+[[ ! -s "${tmp_dir}/archive-index-conditional.html" ]]
+[[ "$(request_code --head "${APP_ORIGIN}/archive")" == 200 ]]
 archive_page_one="$(curl --silent --show-error --fail "${APP_ORIGIN}/archive/2025/07")"
 grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}/archive/2025/07\">" <<<"${archive_page_one}"
 grep --fixed-strings --quiet "<link rel=\"next\" href=\"${APP_ORIGIN}/archive/2025/07?page=2\">" <<<"${archive_page_one}"
@@ -317,6 +347,7 @@ grep --fixed-strings --quiet 'Temporary archive fixture 1</p>' <<<"${archive_pag
 [[ "$(request_code "${APP_ORIGIN}/archive/2025/07?page=3")" == 404 ]]
 sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "DELETE FROM messages WHERE author = 'Archive fixture';"
 [[ "$(request_code "${APP_ORIGIN}/archive/2025/07")" == 404 ]]
+[[ "$(request_code "${APP_ORIGIN}/archive")" == 404 ]]
 
 cross_origin_code="$(request_code \
     --cookie "${cookie_jar}" \
@@ -473,11 +504,19 @@ public_html="$(curl --silent --show-error "${APP_ORIGIN}/")"
 [[ "$(grep -o 'Hello from the isolated smoke test' <<<"${public_html}" | wc -l)" == 1 ]]
 sitemap_populated="$(curl --silent --show-error "${APP_ORIGIN}/sitemap.xml")"
 grep --fixed-strings --quiet "${APP_ORIGIN}/messages/${message_id}" <<<"${sitemap_populated}"
+grep --fixed-strings --quiet "<loc>${APP_ORIGIN}/archive</loc>" <<<"${sitemap_populated}"
 [[ "$(grep -o '/messages/' <<<"${sitemap_populated}" | wc -l)" == 1 ]]
 archive_key="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT substr(created_at, 1, 7) FROM messages WHERE id = ${message_id};")"
 [[ "${archive_key}" =~ ^[12][0-9]{3}-(0[1-9]|1[0-2])$ ]]
 archive_path="/archive/${archive_key/-//}"
 grep --fixed-strings --quiet "${APP_ORIGIN}${archive_path}" <<<"${sitemap_populated}"
+archive_index_populated="$(curl --silent --show-error --fail "${APP_ORIGIN}/archive")"
+grep --fixed-strings --quiet "href=\"${archive_path}\"" <<<"${archive_index_populated}"
+grep --fixed-strings --quiet '1 message' <<<"${archive_index_populated}"
+if grep --fixed-strings --quiet 'Hello from the isolated smoke test' <<<"${archive_index_populated}"; then
+    echo 'Archive index exposed published message content instead of an aggregate.' >&2
+    exit 1
+fi
 archive_html="$(curl --silent --show-error --fail "${APP_ORIGIN}${archive_path}")"
 grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}${archive_path}\">" <<<"${archive_html}"
 grep --fixed-strings --quiet ' archive · Micuțu Guestbook</title>' <<<"${archive_html}"
@@ -660,11 +699,14 @@ hidden_sitemap="$(curl --silent --show-error "${APP_ORIGIN}/sitemap.xml")"
 hidden_feed="$(curl --silent --show-error "${APP_ORIGIN}/feed.xml")"
 hidden_json_feed="$(curl --silent --show-error "${APP_ORIGIN}/feed.json")"
 hidden_archive_code="$(request_code "${APP_ORIGIN}${archive_path}")"
+hidden_archive_index_code="$(request_code "${APP_ORIGIN}/archive")"
 if grep --fixed-strings --quiet "/messages/${message_id}" <<<"${hidden_sitemap}" \
     || grep --fixed-strings --quiet "${archive_path}" <<<"${hidden_sitemap}" \
+    || grep --fixed-strings --quiet "<loc>${APP_ORIGIN}/archive</loc>" <<<"${hidden_sitemap}" \
     || grep --fixed-strings --quiet 'Hello from the isolated smoke test' <<<"${hidden_feed}" \
     || grep --fixed-strings --quiet 'Hello from the isolated smoke test' <<<"${hidden_json_feed}" \
-    || [[ "${hidden_archive_code}" != 404 ]]; then
+    || [[ "${hidden_archive_code}" != 404 ]] \
+    || [[ "${hidden_archive_index_code}" != 404 ]]; then
     echo 'A discovery document exposed a moderated message.' >&2
     exit 1
 fi

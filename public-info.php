@@ -109,7 +109,7 @@ $socialImageUrl = APP_ORIGIN . asset('assets/social-card.png');
             </section>
             <section>
                 <h2>Open ways to read</h2>
-                <p>Every published message has a stable permalink and appears in calendar archives. Readers can follow updates through <a href="/feed.xml">RSS</a> or <a href="/feed.json">JSON Feed</a>. Developers can use the same-origin <a href="/api/v1/messages">JSON API</a> and its <a href="/openapi.json">OpenAPI contract</a>.</p>
+                <p>Every published message has a stable permalink and appears in the <a href="/archive">calendar archive</a>. Readers can follow updates through <a href="/feed.xml">RSS</a> or <a href="/feed.json">JSON Feed</a>. Developers can use the same-origin <a href="/api/v1/messages">JSON API</a> and its <a href="/openapi.json">OpenAPI contract</a>.</p>
             </section>
             <section>
                 <h2>Safety and accessibility</h2>
@@ -183,6 +183,7 @@ $socialImageUrl = APP_ORIGIN . asset('assets/social-card.png');
 
         <footer class="site-footer">
             <nav aria-label="Site information">
+                <a href="/archive">Archive</a>
                 <a href="/about"<?php echo $publicInfoPageSlug === 'about' ? ' aria-current="page"' : ''; ?>>About</a>
                 <a href="/privacy"<?php echo $publicInfoPageSlug === 'privacy' ? ' aria-current="page"' : ''; ?>>Privacy</a>
                 <a href="/moderation"<?php echo $publicInfoPageSlug === 'moderation' ? ' aria-current="page"' : ''; ?>>Moderation</a>

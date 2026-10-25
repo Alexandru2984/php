@@ -400,6 +400,14 @@ body {
 }
 .archive-heading h2 { margin: 0; font-size: .92rem; }
 .archive-heading span { color: var(--text-faint); font-size: .68rem; }
+.archive-heading a {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    color: var(--primary-text);
+    font-size: .76rem;
+    font-weight: 700;
+}
 .archive-list {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
@@ -429,6 +437,57 @@ body {
 }
 .archive-link time { font-size: .78rem; font-weight: 750; }
 .archive-link span { color: var(--text-faint); font-size: .68rem; }
+
+/* ---- Full archive index ---- */
+.archive-index-content h1 {
+    margin: 0;
+    color: var(--text);
+    font-size: clamp(1.8rem, 7vw, 2.7rem);
+    line-height: 1.12;
+}
+.archive-index-hero { margin-bottom: 30px; }
+.archive-index-note { margin: 14px 0 0; color: var(--text-faint); font-size: .76rem; }
+.archive-index-year + .archive-index-year { margin-top: 28px; }
+.archive-index-year-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 11px;
+}
+.archive-index-year-heading h2 { margin: 0; font-size: 1.2rem; }
+.archive-index-year-heading span { color: var(--text-faint); font-size: .76rem; }
+.archive-index-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.archive-index-link {
+    display: flex;
+    min-height: 66px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    color: var(--text);
+    text-decoration: none;
+    transition: border-color .15s, background-color .15s, transform .1s;
+}
+.archive-index-link:hover {
+    border-color: var(--primary);
+    background: var(--primary-soft);
+    color: var(--primary-text);
+}
+.archive-index-link:active { transform: translateY(1px); }
+.archive-index-month { font-weight: 800; }
+.archive-index-count { color: var(--text-faint); font-size: .76rem; white-space: nowrap; }
+.archive-index-action { margin: 28px 0 0; }
 
 /* ---- Feed ---- */
 .section-title {
@@ -1006,6 +1065,8 @@ body {
     .compose-actions { grid-template-columns: 1fr; }
     .preview-toggle { width: 100%; }
     .archive-heading { align-items: flex-start; flex-direction: column; gap: 2px; }
+    .archive-index-list { grid-template-columns: 1fr; }
+    .archive-index-year-heading { align-items: flex-start; flex-direction: column; gap: 2px; }
     .public-page .brand { font-size: 1.15rem; gap: 9px; }
     .public-page .brand .logo { width: 40px; height: 40px; }
     .policy-hero { margin-top: 12px; }

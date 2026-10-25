@@ -10,6 +10,7 @@ $isApiV1 = $requestPath === '/api/v1/messages';
 $isSitemap = $requestPath === '/sitemap.xml';
 $isFeed = $requestPath === '/feed.xml';
 $isJsonFeed = $requestPath === '/feed.json';
+$isArchiveIndex = $requestPath === '/archive';
 $publicInfoPageSlug = match ($requestPath) {
     '/about' => 'about',
     '/privacy' => 'privacy',
@@ -75,14 +76,16 @@ if ($isLegacyMessageRedirect) {
 }
 
 if (!in_array($method, ['GET', 'HEAD', 'POST'], true)) {
-    $readOnlyRoute = $isApiV1 || $isSitemap || $isFeed || $isJsonFeed || $isPublicInfoPage;
+    $readOnlyRoute = $isApiV1 || $isSitemap || $isFeed || $isJsonFeed
+        || $isPublicInfoPage || $isArchiveIndex;
     header('Allow: ' . ($readOnlyRoute ? 'GET, HEAD' : 'GET, HEAD, POST'));
     if ($isApiV1) {
         api_error_response(405, 'method_not_allowed', 'Only GET and HEAD are supported.');
     }
     abort_response(405, 'Method not allowed.');
 }
-if (!$isApiV1 && !$isSitemap && !$isFeed && !$isJsonFeed && !$isPublicInfoPage && $messagePathId === null
+if (!$isApiV1 && !$isSitemap && !$isFeed && !$isJsonFeed && !$isPublicInfoPage
+    && !$isArchiveIndex && $messagePathId === null
     && $messageManagePathId === null
     && !$isArchiveMonth
     && !empty($_SERVER['PATH_INFO'])) {
@@ -206,6 +209,32 @@ if ($isPublicInfoPage) {
     }
     public_document_response(
         $infoPageBody,
+        'text/html; charset=utf-8',
+        $method,
+        noTransform: true
+    );
+}
+
+if ($isArchiveIndex) {
+    if (!in_array($method, ['GET', 'HEAD'], true)) {
+        header('Allow: GET, HEAD');
+        abort_response(405, 'Method not allowed.');
+    }
+    if ($_GET !== []) {
+        abort_response(400, 'Unsupported archive parameter.');
+    }
+    $archiveIndexMonths = public_archive_months($pdo);
+    if ($archiveIndexMonths === []) {
+        abort_response(404, 'Archive not found.');
+    }
+    ob_start();
+    require __DIR__ . '/archive-index.php';
+    $archiveIndexBody = ob_get_clean();
+    if (!is_string($archiveIndexBody)) {
+        abort_response(500, 'Unable to render archive.');
+    }
+    public_document_response(
+        $archiveIndexBody,
         'text/html; charset=utf-8',
         $method,
         noTransform: true
@@ -1078,7 +1107,7 @@ $reportLabels = [
         <nav class="archive-browser" aria-labelledby="archive-title">
             <div class="archive-heading">
                 <h2 id="archive-title">Browse the archive</h2>
-                <span>UTC calendar months</span>
+                <a href="/archive">View full archive</a>
             </div>
             <ul class="archive-list">
                 <?php foreach ($archiveMonths as $monthSummary): ?>
@@ -1455,6 +1484,7 @@ $reportLabels = [
 
         <footer class="site-footer">
             <nav aria-label="Site information">
+                <a href="/archive">Archive</a>
                 <a href="/about">About</a>
                 <a href="/privacy">Privacy</a>
                 <a href="/moderation">Moderation</a>

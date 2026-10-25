@@ -47,6 +47,9 @@ export APP_STORAGE_DIR="${storage_dir}"
 export ANALYTICS_WEBSITE_ID="${analytics_id}"
 
 php "${repo_dir}/scripts/migrate.php" >/dev/null
+sqlite3 "${storage_dir}/database.sqlite" \
+    "INSERT INTO messages (author, content, created_at, status)
+     VALUES ('Health fixture', 'Public archive health fixture', CURRENT_TIMESTAMP, 'published');"
 chmod 0600 "${storage_dir}/database.sqlite"
 snapshot="${tmp_dir}/database.sqlite"
 sqlite3 "${storage_dir}/database.sqlite" ".backup '${snapshot}'"
