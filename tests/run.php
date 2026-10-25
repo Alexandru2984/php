@@ -67,6 +67,15 @@ check(
         && public_archive_path(2026, 10, 3) === '/archive/2026/10?page=3',
     'calendar archive paths are stable, clean and paginated'
 );
+$infoPages = public_info_pages();
+check(
+    array_keys($infoPages) === ['about', 'privacy', 'moderation']
+        && array_column($infoPages, 'path') === ['/about', '/privacy', '/moderation']
+        && ($infoPages['about']['schema_type'] ?? null) === 'AboutPage'
+        && ($infoPages['privacy']['schema_type'] ?? null) === 'WebPage'
+        && count(array_unique(array_column($infoPages, 'title'))) === 3,
+    'public information pages have unique canonical metadata and trusted schema types'
+);
 $invalidMessagePathRejected = false;
 try {
     public_message_path(0);
@@ -237,6 +246,9 @@ $sitemapFixture = public_sitemap_xml($seoDb);
 check(
     str_contains($sitemapFixture, 'https://php.micutu.com/messages/1')
         && str_contains($sitemapFixture, 'https://php.micutu.com/archive/2026/10')
+        && str_contains($sitemapFixture, 'https://php.micutu.com/about')
+        && str_contains($sitemapFixture, 'https://php.micutu.com/privacy')
+        && str_contains($sitemapFixture, 'https://php.micutu.com/moderation')
         && str_contains($sitemapFixture, '2026-10-23T10:00:00Z')
         && !str_contains($sitemapFixture, 'message=2')
         && !str_contains($sitemapFixture, 'Pending secret'),
@@ -248,8 +260,8 @@ check(
         && ($archiveMonthFixture[0]['archive_month'] ?? null) === '2026-10'
         && (int) ($archiveMonthFixture[0]['message_count'] ?? 0) === 1
         && ($archiveMonthFixture[0]['updated_at'] ?? null) === '2026-10-23 10:00:00'
-        && substr_count($sitemapFixture, '<url>') === 3,
-    'archive summaries and sitemap URL budget include published records only'
+        && substr_count($sitemapFixture, '<url>') === 6,
+    'archive summaries and sitemap URL budget reserve static and published URLs'
 );
 $archivePlan = $seoDb->query(
     "EXPLAIN QUERY PLAN

@@ -21,6 +21,8 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 - Technical SEO with stable canonical URLs, versioned robots policy, a sessionless
   XML sitemap, calendar discovery, RSS/JSON feeds, social metadata and
   forum-posting structured data.
+- Indexable, sessionless About, Privacy and Moderation pages with honest retention
+  disclosures, breadcrumb/page microdata, strong ETags and responsive policy layouts.
 - Sessionless `/api/v1/messages` with signed cursor pagination, ETags, conditional
   requests and a published OpenAPI 3.1 contract.
 - Light/dark theme with a persisted toggle.
@@ -51,6 +53,7 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 
 ## Structure
 - `index.php` — controller + view.
+- `public-info.php` — public About, Privacy and Moderation page view.
 - `config.php` — paths, `.env` loading, session and database bootstrap.
 - `lib.php` — helpers (escaping, CSRF, rate limiting, icons, avatars, time).
 - `api.php` / `openapi.json` — public API implementation and machine contract.

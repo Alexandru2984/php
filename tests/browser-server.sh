@@ -28,7 +28,7 @@ ADMIN_PASSWORD_HASH="$(php -r 'echo password_hash("browser-test-password", PASSW
 export ADMIN_PASSWORD_HASH
 
 mkdir -p "${app_dir}/tests" "${APP_STORAGE_DIR}" "${tmp_dir}/sessions"
-for path in index.php config.php lib.php api.php openapi.json assets migrations scripts .well-known; do
+for path in index.php public-info.php config.php lib.php api.php openapi.json assets migrations scripts .well-known; do
     cp -a -- "${repo_dir}/${path}" "${app_dir}/"
 done
 cp -a -- "${repo_dir}/tests/router.php" "${app_dir}/tests/router.php"

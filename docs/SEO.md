@@ -15,6 +15,7 @@ Canonical URLs are absolute and deterministic:
 - published message: `https://php.micutu.com/messages/ID`;
 - recent stream page: `https://php.micutu.com/?page=N`;
 - monthly archive: `https://php.micutu.com/archive/YYYY/MM[?page=N]`;
+- public information: `https://php.micutu.com/about`, `/privacy` and `/moderation`;
 - search results preserve their query in a self-canonical URL but remain `noindex`.
 
 The server-rendered head includes a unique title and description, canonical URL,
@@ -28,8 +29,9 @@ checks pin the output digest and dimensions.
 
 ## Discovery documents
 
-- `/sitemap.xml` is sessionless, conditionally cacheable and contains the homepage
-  plus populated monthly archives and published message permalinks. Pending or
+- `/sitemap.xml` is sessionless, conditionally cacheable and contains the homepage,
+  the three public information pages, populated monthly archives and published
+  message permalinks. Pending or
   moderated records are excluded at the SQL boundary. The message budget dynamically
   reserves space for at most 120 archive URLs and keeps the total at or below the
   protocol's 50,000-URL ceiling; shard it before the site approaches that size.
@@ -57,6 +59,14 @@ malformed or mixed canonical parameters fail closed. Microdata avoids weakening 
 CSP for inline JSON-LD and is emitted only when the same published content is visible
 on the page.
 
+The standalone About, Privacy and Moderation routes are sessionless HTML documents
+with strong ETags, short public caching and no cookie. Each has a unique title,
+description and self-canonical, a visible `BreadcrumbList`, and explicit `AboutPage`
+or `WebPage` microdata whose fields match visible text. The policy navigation is
+available from every UI page. Privacy copy explicitly distinguishes application
+removal from crawler/cache copies and records the current absence of a dedicated
+data-subject channel instead of claiming a control that does not exist.
+
 Each visible message also has a progressively enhanced Share control. It sends only
 the canonical permalink and a generic numeric title to the browser's native share
 sheet after an explicit click. Browsers without that API copy the same URL locally;
@@ -72,7 +82,9 @@ This implementation follows current primary guidance from
 [image discovery](https://developers.google.com/search/docs/appearance/google-images),
 [Open Graph image properties](https://ogp.me/),
 [JSON Feed 1.1](https://www.jsonfeed.org/version/1.1/),
-and [discussion-forum structured data](https://developers.google.com/search/docs/appearance/structured-data/discussion-forum).
+[Schema.org AboutPage](https://schema.org/AboutPage),
+[Schema.org WebPage](https://schema.org/WebPage), and
+[discussion-forum structured data](https://developers.google.com/search/docs/appearance/structured-data/discussion-forum).
 
 ## CISO review
 
@@ -110,7 +122,8 @@ evidence does not support inventing a dollar value.
 
 ### Detection and response
 
-The five-minute health probe validates RSS, JSON Feed, sitemap XML, a discovered
+The five-minute health probe validates RSS, JSON Feed, sitemap XML with all three
+public information URLs, the sessionless Privacy page contract, a discovered
 calendar archive, the exact robots sitemap directive and a current clean permalink
 through Cloudflare. CI separately proves the
 legacy redirect is sessionless, canonical paths reject mixed parameters, hidden

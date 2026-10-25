@@ -130,6 +130,9 @@ fi
 # shellcheck disable=SC2016
 php -r '$xml=simplexml_load_file($argv[1]);exit($xml===false?1:0);' "${sitemap_body}"
 grep --fixed-strings --quiet "<loc>${APP_ORIGIN}/</loc>" "${sitemap_body}"
+for info_path in about privacy moderation; do
+    grep --fixed-strings --quiet "<loc>${APP_ORIGIN}/${info_path}</loc>" "${sitemap_body}"
+done
 sitemap_etag="$(sed -n 's/^ETag: \(.*\)\r$/\1/ip' "${sitemap_headers}")"
 [[ "${sitemap_etag}" =~ ^\"[0-9a-f]{64}\"$ ]]
 [[ "$(curl --silent --show-error --output "${tmp_dir}/sitemap-conditional.xml" \
@@ -203,8 +206,44 @@ grep --ignore-case --quiet '^Content-Type: image/png' "${social_image_headers}"
 php -r '$v=getimagesize($argv[1]);exit(is_array($v)&&$v[0]===1200&&$v[1]===630&&($v["mime"]??null)==="image/png"?0:1);' "${social_image_body}"
 [[ "$(sha256sum "${social_image_body}" | cut -d' ' -f1)" == \
     ec387ed5b4788647dd9ca9bdfef8f2f38cfe36c4393735f94eaa13fcb23de3e9 ]]
+
+for info_path in about privacy moderation; do
+    info_headers="${tmp_dir}/${info_path}-headers.txt"
+    info_body="${tmp_dir}/${info_path}.html"
+    [[ "$(curl --silent --show-error --dump-header "${info_headers}" --output "${info_body}" \
+        --write-out '%{http_code}' "${APP_ORIGIN}/${info_path}")" == 200 ]]
+    grep --ignore-case --quiet '^Content-Type: text/html; charset=utf-8' "${info_headers}"
+    grep --ignore-case --quiet '^Cache-Control: public, max-age=30, stale-while-revalidate=60' "${info_headers}"
+    grep --ignore-case --quiet '^Vary: Accept-Encoding' "${info_headers}"
+    if grep --ignore-case --quiet '^Set-Cookie:' "${info_headers}"; then
+        echo "Public ${info_path} page unexpectedly emitted a cookie." >&2
+        exit 1
+    fi
+    grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}/${info_path}\">" "${info_body}"
+    grep --fixed-strings --quiet 'itemtype="https://schema.org/BreadcrumbList"' "${info_body}"
+    grep --fixed-strings --quiet 'aria-label="Site information"' "${info_body}"
+    grep --fixed-strings --quiet 'href="/privacy"' "${info_body}"
+done
+grep --fixed-strings --quiet 'itemtype="https://schema.org/AboutPage"' "${tmp_dir}/about.html"
+grep --fixed-strings --quiet 'itemtype="https://schema.org/WebPage"' "${tmp_dir}/privacy.html"
+grep --fixed-strings --quiet 'This is a public guestbook.' "${tmp_dir}/privacy.html"
+grep --fixed-strings --quiet 'Reports contain no free-text narrative' "${tmp_dir}/moderation.html"
+privacy_etag="$(sed -n 's/^ETag: \(.*\)\r$/\1/ip' "${tmp_dir}/privacy-headers.txt")"
+[[ "${privacy_etag}" =~ ^\"[0-9a-f]{64}\"$ ]]
+[[ "$(curl --silent --show-error --output "${tmp_dir}/privacy-conditional.html" \
+    --write-out '%{http_code}' --header "If-None-Match: ${privacy_etag}" \
+    "${APP_ORIGIN}/privacy")" == 304 ]]
+[[ ! -s "${tmp_dir}/privacy-conditional.html" ]]
+[[ "$(curl --silent --show-error --head --output /dev/null \
+    --write-out '%{http_code}' "${APP_ORIGIN}/privacy")" == 200 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+    "${APP_ORIGIN}/privacy?unexpected=1")" == 400 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+    --data 'x=1' "${APP_ORIGIN}/privacy")" == 405 ]]
+[[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+    "${APP_ORIGIN}/public-info.php")" == 404 ]]
 if find "${web_session_dir}" -type f -print -quit | grep --quiet .; then
-    echo 'Sessionless API unexpectedly created a PHP session.' >&2
+    echo 'Sessionless public routes unexpectedly created a PHP session.' >&2
     exit 1
 fi
 [[ "$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${APP_ORIGIN}/archive/2026/10")" == 404 ]]

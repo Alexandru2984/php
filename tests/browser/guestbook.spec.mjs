@@ -202,6 +202,40 @@ test('light and dark interfaces have no automatically detectable WCAG A/AA viola
   expect(runtimeFailures).toEqual([]);
 });
 
+test('public trust pages are canonical, accessible and responsive', async ({ page }) => {
+  const runtimeFailures = observeRuntimeFailures(page);
+  const pages = [
+    { path: '/about', title: 'About · Micuțu Guestbook', heading: 'About this guestbook', schema: 'AboutPage' },
+    { path: '/privacy', title: 'Privacy · Micuțu Guestbook', heading: 'Privacy and data use', schema: 'WebPage' },
+    { path: '/moderation', title: 'Moderation · Micuțu Guestbook', heading: 'Moderation policy', schema: 'WebPage' },
+  ];
+
+  await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
+  await page.setViewportSize({ width: 320, height: 812 });
+  for (const publicPage of pages) {
+    await page.goto(publicPage.path);
+    await expect(page).toHaveTitle(publicPage.title);
+    await expect(page.getByRole('heading', { level: 1, name: publicPage.heading })).toBeVisible();
+    await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', new RegExp(`${publicPage.path}$`));
+    await expect(page.locator(`main[itemtype="https://schema.org/${publicPage.schema}"]`)).toHaveCount(1);
+    await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Guestbook');
+    await expect(page.getByRole('navigation', { name: 'Site information' }).getByRole('link', { name: publicPage.heading.startsWith('About') ? 'About' : publicPage.heading.split(' ')[0] }))
+      .toHaveAttribute('aria-current', 'page');
+
+    const dimensions = await page.evaluate(() => ({
+      viewportWidth: document.documentElement.clientWidth,
+      documentWidth: document.documentElement.scrollWidth,
+      bodyWidth: document.body.scrollWidth,
+    }));
+    expect(dimensions.documentWidth, `${publicPage.path} document overflow`).toBeLessThanOrEqual(dimensions.viewportWidth);
+    expect(dimensions.bodyWidth, `${publicPage.path} body overflow`).toBeLessThanOrEqual(dimensions.viewportWidth);
+    const results = await new AxeBuilder({ page }).withTags(wcagTags).analyze();
+    expect(violationSummary(results), `${publicPage.path} WCAG violations`).toEqual([]);
+  }
+
+  expect(runtimeFailures).toEqual([]);
+});
+
 test('SEO metadata, canonical permalinks and structured data match visible content', async ({ page }) => {
   const runtimeFailures = observeRuntimeFailures(page);
   await page.goto('/');

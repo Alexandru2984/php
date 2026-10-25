@@ -74,6 +74,34 @@ function public_archive_path(int $year, int $month, int $page = 1): string
     return $page === 1 ? $path : $path . '?page=' . $page;
 }
 
+/** Return the trusted metadata for public, sessionless information pages. */
+function public_info_pages(): array
+{
+    return [
+        'about' => [
+            'path' => '/about',
+            'title' => 'About · Micuțu Guestbook',
+            'heading' => 'About this guestbook',
+            'description' => 'How Micuțu Guestbook works, what it publishes and the open formats it supports.',
+            'schema_type' => 'AboutPage',
+        ],
+        'privacy' => [
+            'path' => '/privacy',
+            'title' => 'Privacy · Micuțu Guestbook',
+            'heading' => 'Privacy and data use',
+            'description' => 'What Micuțu Guestbook publishes, which technical records it keeps and for how long.',
+            'schema_type' => 'WebPage',
+        ],
+        'moderation' => [
+            'path' => '/moderation',
+            'title' => 'Moderation · Micuțu Guestbook',
+            'heading' => 'Moderation policy',
+            'description' => 'How public reports, automated risk signals and human moderation work on Micuțu Guestbook.',
+            'schema_type' => 'WebPage',
+        ],
+    ];
+}
+
 /** Return a bounded newest-first list of UTC months containing published records. */
 function public_archive_months(PDO $pdo, int $limit = 120): array
 {
@@ -106,8 +134,9 @@ function public_archive_months(PDO $pdo, int $limit = 120): array
 /** Build a bounded sitemap from published records only. */
 function public_sitemap_xml(PDO $pdo): string
 {
+    $infoPages = public_info_pages();
     $archiveMonths = public_archive_months($pdo);
-    $messageLimit = 49999 - count($archiveMonths);
+    $messageLimit = 49999 - count($infoPages) - count($archiveMonths);
     $stmt = $pdo->prepare(
         "SELECT id,
                 MAX(
@@ -145,6 +174,9 @@ function public_sitemap_xml(PDO $pdo): string
         $xml .= '<lastmod>' . utc_iso8601($latest) . '</lastmod>';
     }
     $xml .= "</url>\n";
+    foreach ($infoPages as $infoPage) {
+        $xml .= '  <url><loc>' . xml_e(APP_ORIGIN . $infoPage['path']) . "</loc></url>\n";
+    }
     foreach ($archiveMonths as $archiveMonth) {
         if (preg_match('/\A([12][0-9]{3})-(0[1-9]|1[0-2])\z/D', (string) $archiveMonth['archive_month'], $match) !== 1) {
             continue;

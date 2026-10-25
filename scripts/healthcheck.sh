@@ -239,10 +239,34 @@ fi
 # shellcheck disable=SC2016
 if ! curl "${curl_args[@]}" "${base_url}/sitemap.xml" | php -r '
     $value = simplexml_load_string(stream_get_contents(STDIN));
-    exit($value !== false && $value->getName() === "urlset" ? 0 : 1);
-'; then
+    if ($value === false || $value->getName() !== "urlset") { exit(1); }
+    $locations = [];
+    foreach ($value->url as $entry) { $locations[] = (string) ($entry->loc ?? ""); }
+    foreach (["/about", "/privacy", "/moderation"] as $path) {
+        if (!in_array($argv[1] . $path, $locations, true)) { exit(1); }
+    }
+' "${base_url}"; then
     fail seo sitemap-invalid
 fi
+
+privacy_html="$(curl "${curl_args[@]}" "${base_url}/privacy")" \
+    || fail seo privacy-page-unavailable
+[[ "${privacy_html}" == *"rel=\"canonical\" href=\"${base_url}/privacy\""* ]] \
+    || fail seo privacy-canonical-missing
+[[ "${privacy_html}" == *'itemtype="https://schema.org/WebPage"'* ]] \
+    || fail seo privacy-schema-missing
+[[ "${privacy_html}" == *'itemtype="https://schema.org/BreadcrumbList"'* ]] \
+    || fail seo privacy-breadcrumb-missing
+[[ "${privacy_html}" == *'This is a public guestbook.'* ]] \
+    || fail privacy publication-notice-missing
+privacy_headers="$(curl "${curl_args[@]}" --head "${base_url}/privacy")" \
+    || fail seo privacy-headers-unavailable
+privacy_headers_lower="${privacy_headers,,}"
+[[ "${privacy_headers_lower}" == *'cache-control: public, max-age=30, stale-while-revalidate=60'* ]] \
+    || fail seo privacy-cache-policy-invalid
+[[ "${privacy_headers_lower}" == *'etag: "'* ]] || fail seo privacy-etag-missing
+[[ "${privacy_headers_lower}" != *$'\nset-cookie:'* ]] || fail privacy session-cookie-present
+unset privacy_html privacy_headers privacy_headers_lower
 
 robots="$(curl "${curl_args[@]}" "${base_url}/robots.txt")" \
     || fail seo robots-unavailable
@@ -414,4 +438,4 @@ disk_used="$(df -P -- "${storage_dir}" | awk 'NR == 2 {gsub(/%/, "", $5); print 
 [[ "${disk_used}" =~ ^[0-9]+$ ]] || fail disk usage-invalid
 (( disk_used < max_disk_used )) || fail disk threshold-exceeded
 
-echo 'guestbook-health: ok web api rss seo analytics database security moderation backup restore-drill offsite permissions disk'
+echo 'guestbook-health: ok web api rss seo privacy analytics database security moderation backup restore-drill offsite permissions disk'

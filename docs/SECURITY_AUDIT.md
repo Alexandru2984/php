@@ -64,7 +64,7 @@ incomplete.
 | S-08 | Medium | Input type confusion can create warnings and unintended values. | Array values for `q`, `page`, `author`, `message` or `password` are cast instead of rejected. This can generate log noise or accept the literal value `Array`. | Accept only expected scalar types, use centralized input helpers, and test malformed nested parameters. |
 | S-09 | Medium | Database DDL runs on every web request and migration errors are swallowed. | `CREATE`/`ALTER`/index statements execute during bootstrap; every migration exception is treated as "column exists". Disk, permission and corruption errors can be hidden. | Move schema changes to versioned, transactional CLI migrations and keep web requests read/write-data only. |
 | S-10 | Medium | Cloudflare JavaScript Detection conflicts with CSP. | The live edge injects an inline challenge script while `script-src` disallows inline code. Browsers will block it, reducing bot signal quality. | Keep `unsafe-inline` forbidden. Use a per-response CSP nonce that Cloudflare can propagate, or intentionally disable injection for this hostname. |
-| S-11 | Medium | Core identifier retention is defined; full data-subject workflow remains. | Message identifiers detach after 24 hours, rate limits expire after seven days, security/closed reports after 90 days, and the public notice explains processing. Export/erasure operations and key-rotation procedure are not complete. | Add authenticated export/erasure commands, record legal basis and test purpose-key rotation. |
+| S-11 | Medium | Core retention is publicly documented; full data-subject workflow remains. | The sessionless Privacy page now distinguishes public/indexed content, application retention, backups and third-party copies. Message identifiers detach after 24 hours, rate limits expire after seven days, and security/closed reports after 90 days. A dedicated private privacy contact, export/erasure/objection operations and key-rotation procedure are not complete. | Publish a controller contact and complete authenticated request handling; record legal basis and test purpose-key rotation. |
 | S-12 | Low | Reversible moderation and audit are deployed; purge policy remains deferred. | Five states, controlled reasons, a report queue, atomic transitions and trigger-protected append-only audit remove immediate-deletion and repudiation risk. Permanent purge and bulk actions are intentionally absent. | Define purge authorization/retention before adding permanent deletion; keep public reports non-automatic. |
 | S-13 | Medium | Encrypted off-host copying is deployed, but provider redundancy is degraded. | The first production run age-encrypted 24 snapshots and verified all 24 at R2 with zero differences. Google Drive rejected every upload because its storage quota is exceeded; the job, health probe and pager correctly remain failed/degraded. Jobs never send plaintext or delete remote history. One recovery recipient, shared-scope provider credentials and the absence of a downloaded-artifact human drill remain failure modes. | Restore Drive capacity or replace it with an independent provider; add a second offline recipient, restrict credentials per namespace, enforce documented remote retention and execute a quarterly downloaded-artifact drill. |
 | S-14 | Low | API v1 is stateless and cache-consistent; the legacy JSON shape remains temporarily. | `/api/v1/messages` creates no session/cookie, exposes published columns only, uses signed indexed cursors, strong ETags and explicit public cache semantics. The old query-format feed is private/no-store and marked deprecated. | Migrate remaining consumers, measure usage, then remove the legacy JSON format in a separately announced release. |
@@ -73,7 +73,7 @@ incomplete.
 | S-17 | Low | Real-browser CI is implemented; human accessibility and repository enforcement remain. | Exact-version Playwright/Axe checks run against isolated state at 320–1440px, enforce WCAG A/AA rules in both themes, keyboard focus, touch targets and zero overflow. Automated review caught and fixed contrast and accessible-name defects. Lighthouse, 200% zoom, screen-reader sign-off and confirmation that the job is required by branch protection remain open. | Complete and record the manual matrix, add Lighthouse budgets, then require both CI jobs in GitHub branch protection after push. |
 | S-18 | Low | Indexed search removes routine full scans; a dedicated edge limit remains absent. | FTS5 uses generated prepared prefix terms capped at eight, indexed Unicode tokenization, bounded pagination and a published-only join. Hostile FTS grammar, trigger synchronization, query plans and restored-index integrity are tested. Distributed query floods can still create SQLite/CPU contention. | Add a search-specific Cloudflare rate limit and latency/SQLite-busy alert without logging visitor query text. |
 | S-19 | Medium | Explainable review catches common automation patterns; distributed and novel abuse remains. | Fixed Unicode/link/name/repetition/timing signals plus 24-hour keyed duplicate detection queue at score 40 without auto-deletion. Public surfaces exclude pending content, admin release is reversible and a ten-item pending backlog alerts. Content variation or distributed clients can evade application-local signals, while false positives wait for human review. | Add separate edge limits for post/search/API, measure false-positive and queue latency without message telemetry, then consider accessible risk-triggered Turnstile and expiring allow/block entries. |
-| S-20 | Low | Public discovery is explicit; search-console governance remains manual. | Sitemap, UTC calendar archives, RSS, JSON Feed and structured metadata select published records only; search/admin views are noindex, clean message/archive paths reject mixed parameters, empty or unavailable resources return 404, outputs are context-safe and production health probes the discovery documents, one archive and a live permalink. Sharing requires a visitor click, exposes only a canonical URL plus generic title and loads no social SDK. Search-engine recrawl/removal, ownership alerts and erasure workflows are not automated. | Verify both major search consoles, monitor coverage/rich-result errors, document cache purge and URL removal, and complete the data-subject workflow. |
+| S-20 | Low | Public discovery and trust pages are explicit; search-console governance remains manual. | Sitemap, UTC calendar archives, RSS, JSON Feed, About/Privacy/Moderation pages and structured metadata expose only intended public documents; search/admin views are noindex, clean paths reject mixed parameters, empty or unavailable resources return 404, and production health probes discovery plus the Privacy contract. Sharing requires a visitor click, exposes only a canonical URL plus generic title and loads no social SDK. Search-engine recrawl/removal, ownership alerts and erasure workflows are not automated. | Verify both major search consoles, monitor coverage/rich-result errors, document cache purge and URL removal, and complete the data-subject workflow. |
 | S-21 | High | The active Telegram bot token exists in local agent-session history. | A fingerprint-only comparison found the current token in three local history files. Two Codex histories were mode `0664`; they and the containing session directories are now owner-only (`0600`/`0700`). The secret remains valid and present in retained history, so permission hardening limits local exposure but does not revoke copies. The token was not added to this repository. | Regenerate the token through BotFather, atomically update the root-owned bot credential, restart and verify the allow-listed chat, then redact or securely remove historical copies under an approved retention plan. Enforce owner-only creation permissions for all future agent transcripts. |
 | S-22 | Low | Local drafts improve resilience but can leave message text on a shared device. | Draft storage is off by default, explicitly device-scoped in the UI, bounded to server field limits, expires after 24 hours and is deleted after successful submission or on request. The text-only preview uses DOM `textContent`; browser tests prove markup does not create elements or execute. A user with access to the same unlocked browser profile can still read an opted-in draft. | Keep opt-in off by default, do not sync drafts server-side, retain the clear control and re-evaluate before adding accounts, cloud sync or longer retention. |
 | S-23 | Low | Featured-message curation adds an admin-controlled ranking signal. | A stolen admin session could promote one already-public message, but cannot feature moderated content. Same-origin CSRF-protected POST, an expiring admin session, a one-row database constraint, append-only feature/unfeature audit and automatic clearing on moderation bound the impact. | Monitor unexpected feature audit events, rotate the admin credential/session on compromise and retain the one-message/public-only invariant. |
@@ -140,6 +140,48 @@ is reversible, constrained and attributable.
 
 **Verdict:** 🟢 SHIP. Residual shared-device exposure is clearly disclosed and under
 the visitor's control.
+
+## CISO review: public trust pages
+
+**Date:** 2026-10-25
+
+- **Threat model:** information disclosure through a policy route accidentally
+  becoming session-backed or projecting private records is the highest-impact case;
+  tampering that publishes false retention/moderation claims follows; crawler-driven
+  denial of service is third. The routes render fixed, reviewed copy without a data
+  query, accept GET/HEAD only, reject all query parameters, create no session/cookie,
+  escape metadata, use short public caching and share the existing edge limit.
+- **Blast radius and FAIR:** the new routes expose no database row, identifier,
+  report, audit event, credential or visitor-specific response. A tampered policy can
+  mislead every prospective poster, while a routing regression could at worst expose
+  the non-public message collection through adjacent discovery code. At rollout the
+  database has three published messages. Annual loss expectancy cannot be calculated
+  without crawler/request frequency, incident-response cost, affected-person cost
+  and probability of policy/deployment compromise; no monetary value is invented.
+- **Detection:** CI validates route/method/query/cookie/cache contracts, exact sitemap
+  inclusion, microdata, Axe WCAG A/AA rules and 320-pixel reflow. The five-minute
+  production probe checks the Privacy canonical, publication warning, schema, ETag,
+  cache policy and absence of a session cookie, giving an MTTD target of five minutes
+  plus timer jitter for those regressions. Legal-copy accuracy still needs scheduled
+  human review and has no automatic semantic detector.
+- **Response:** switch the immutable release symlink back, purge the affected
+  Cloudflare objects, remove incorrect search results where necessary, preserve the
+  release diff and follow the incident-response runbook. A crawler-leak and privacy-
+  notice tabletop has not been completed.
+- **Regulatory:** public names/content and keyed online identifiers keep GDPR
+  plausibly in scope. The page records retention and current operational limits, but
+  it explicitly is not a complete statutory notice: controller identity/contact,
+  legal bases, rights handling, transfer/processor records and a private data-subject
+  channel remain to be completed. A qualifying personal-data breach retains the
+  controller's 72-hour supervisory-authority assessment window.
+- **Vendors and supply chain:** the feature adds zero packages, vendors, processors,
+  credentials, cookies, CDNs or outbound APIs. Existing Cloudflare, self-hosted
+  analytics, hosting, backup providers and search crawlers retain their already-
+  documented boundaries.
+
+**Verdict:** 🟡 MITIGATE THEN SHIP. Technical publication controls are strong and the
+copy is deliberately honest; a dedicated private contact and complete data-subject
+workflow are required before calling privacy governance complete.
 
 ## Controls verified
 

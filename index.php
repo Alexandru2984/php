@@ -10,6 +10,13 @@ $isApiV1 = $requestPath === '/api/v1/messages';
 $isSitemap = $requestPath === '/sitemap.xml';
 $isFeed = $requestPath === '/feed.xml';
 $isJsonFeed = $requestPath === '/feed.json';
+$publicInfoPageSlug = match ($requestPath) {
+    '/about' => 'about',
+    '/privacy' => 'privacy',
+    '/moderation' => 'moderation',
+    default => null,
+};
+$isPublicInfoPage = $publicInfoPageSlug !== null;
 $messagePathId = null;
 $archiveYear = null;
 $archiveMonth = null;
@@ -55,14 +62,14 @@ if ($isLegacyMessageRedirect) {
 }
 
 if (!in_array($method, ['GET', 'HEAD', 'POST'], true)) {
-    $readOnlyRoute = $isApiV1 || $isSitemap || $isFeed || $isJsonFeed;
+    $readOnlyRoute = $isApiV1 || $isSitemap || $isFeed || $isJsonFeed || $isPublicInfoPage;
     header('Allow: ' . ($readOnlyRoute ? 'GET, HEAD' : 'GET, HEAD, POST'));
     if ($isApiV1) {
         api_error_response(405, 'method_not_allowed', 'Only GET and HEAD are supported.');
     }
     abort_response(405, 'Method not allowed.');
 }
-if (!$isApiV1 && !$isSitemap && !$isFeed && !$isJsonFeed && $messagePathId === null
+if (!$isApiV1 && !$isSitemap && !$isFeed && !$isJsonFeed && !$isPublicInfoPage && $messagePathId === null
     && !$isArchiveMonth
     && !empty($_SERVER['PATH_INFO'])) {
     abort_response(404, 'Not found.');
@@ -161,6 +168,25 @@ function public_document_response(
         echo $body;
     }
     exit;
+}
+
+if ($isPublicInfoPage) {
+    if (!in_array($method, ['GET', 'HEAD'], true)) {
+        header('Allow: GET, HEAD');
+        abort_response(405, 'Method not allowed.');
+    }
+    if ($_GET !== []) {
+        abort_response(400, 'Unsupported query parameter.');
+    }
+    $infoPages = public_info_pages();
+    $infoPage = $infoPages[$publicInfoPageSlug];
+    ob_start();
+    require __DIR__ . '/public-info.php';
+    $infoPageBody = ob_get_clean();
+    if (!is_string($infoPageBody)) {
+        abort_response(500, 'Unable to render page.');
+    }
+    public_document_response($infoPageBody, 'text/html; charset=utf-8', $method);
 }
 
 if ($isSitemap || $isFeed || $isJsonFeed) {
@@ -1293,7 +1319,7 @@ $reportLabels = [
             <h2 id="about-title">About this space</h2>
             <p>A small public guestbook operated on Micuțu infrastructure. Be kind, avoid personal information, and use Report when a public message needs review.</p>
             <p>Follow published messages through <a href="/feed.xml">RSS</a> or <a href="/feed.json">JSON Feed</a>. Developers can use the <a href="/api/v1/messages">sessionless JSON API</a> with its machine-readable <a href="/openapi.json">OpenAPI contract</a>.</p>
-            <p>Security concerns can be reported using the contact route in <a href="/.well-known/security.txt">security.txt</a>.</p>
+            <p>Read more <a href="/about">about the project</a>, its <a href="/privacy">privacy and data use</a>, and the <a href="/moderation">moderation policy</a>. Security concerns can be reported using the contact route in <a href="/.well-known/security.txt">security.txt</a>.</p>
         </section>
 
         <details class="privacy" id="privacy">
@@ -1306,7 +1332,20 @@ $reportLabels = [
             <?php else: ?>
             <p>Optional analytics is disabled on this deployment.</p>
             <?php endif; ?>
+            <p>The standalone <a href="/privacy">privacy page</a> documents retention, backups and the current limits of the removal workflow.</p>
         </details>
+
+        <footer class="site-footer">
+            <nav aria-label="Site information">
+                <a href="/about">About</a>
+                <a href="/privacy">Privacy</a>
+                <a href="/moderation">Moderation</a>
+                <a href="/feed.xml">RSS</a>
+                <a href="/feed.json">JSON Feed</a>
+                <a href="/api/v1/messages">API</a>
+                <a href="/.well-known/security.txt">Security</a>
+            </nav>
+        </footer>
     </main>
 </body>
 </html>

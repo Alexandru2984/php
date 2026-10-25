@@ -26,6 +26,10 @@ criteria.
   a text-only preview and moderator-selected featured messages. Feature replacement,
   removal and moderation cleanup are transactional and append-only audited. No draft
   content crosses the network before the visitor submits the normal form.
+- **Trust and discovery pages delivered:** standalone sessionless About, Privacy and
+  Moderation pages now publish the real public surface, retention periods, reporting
+  model and known workflow gaps. A dedicated private operator contact and complete
+  export/erasure/objection workflow remain outstanding.
 - **Next priority:** restore Google Drive capacity or replace the degraded second
   off-host provider, add a second offline recovery recipient plus a human off-host drill,
   an incident-response tabletop, manual screen-reader/200% zoom checks,
