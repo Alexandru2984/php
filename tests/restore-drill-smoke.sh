@@ -36,17 +36,31 @@ drill_env=(
     "GUESTBOOK_RESTORE_STATUS_FILE=${status_file}"
     "GUESTBOOK_RESTORE_TMP_DIR=${scratch_dir}"
     'GUESTBOOK_RESTORE_MAX_BACKUP_AGE_SECONDS=108000'
-    'GUESTBOOK_EXPECTED_MIGRATIONS=7'
+    'GUESTBOOK_EXPECTED_MIGRATIONS=8'
 )
 
 output="$(env "${drill_env[@]}" bash "${repo_dir}/scripts/restore-drill.sh")"
 [[ "${output}" == guestbook-restore-drill:\ ok* ]]
 [[ -f "${status_file}" && "$(stat -c '%a' "${status_file}")" == 600 ]]
-grep --quiet '^success_epoch=[0-9]\+ backup_mtime=[0-9]\+ migrations=7$' "${status_file}"
+grep --quiet '^success_epoch=[0-9]\+ backup_mtime=[0-9]\+ migrations=8$' "${status_file}"
 [[ -z "$(find "${scratch_dir}" -mindepth 1 -print -quit)" ]]
 
 backup_file="$(find "${backup_dir}" -maxdepth 1 -type f -name 'database-*.sqlite.gz' -print -quit)"
 cp "${backup_file}" "${tmp_dir}/valid.sqlite.gz"
+gzip -dc "${tmp_dir}/valid.sqlite.gz" >"${tmp_dir}/broken-owner.sqlite"
+sqlite3 "${tmp_dir}/broken-owner.sqlite" \
+    "INSERT INTO messages
+        (author, content, status, moderation_reason, owner_withdrawn_at)
+     VALUES ('Invalid owner fixture', 'must fail restore', 'deleted', 'policy', CURRENT_TIMESTAMP);"
+gzip -c "${tmp_dir}/broken-owner.sqlite" >"${backup_file}"
+chmod 0600 "${backup_file}"
+set +e
+owner_output="$(env "${drill_env[@]}" bash "${repo_dir}/scripts/restore-drill.sh" 2>&1)"
+owner_exit=$?
+set -e
+[[ "${owner_exit}" -ne 0 ]]
+[[ "${owner_output}" == *'component=restore reason=ownership-invariant-invalid'* ]]
+
 gzip -dc "${tmp_dir}/valid.sqlite.gz" >"${tmp_dir}/broken-index.sqlite"
 sqlite3 "${tmp_dir}/broken-index.sqlite" \
     "INSERT INTO messages_fts(messages_fts, rowid, author, content)

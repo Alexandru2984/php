@@ -30,6 +30,11 @@ criteria.
   Moderation pages now publish the real public surface, retention periods, reporting
   model and known workflow gaps. A dedicated private operator contact and complete
   export/erasure/objection workflow remain outstanding.
+- **Self-service withdrawal foundation delivered:** every new submission receives a
+  private HttpOnly capability scoped to a noindex/no-store management path. Its browser
+  can hide that message from every first-party public surface; capability destruction,
+  append-only audit and database triggers make the decision non-republishable. This is
+  deliberately documented as soft withdrawal, not a complete Article 17 purge.
 - **Next priority:** restore Google Drive capacity or replace the degraded second
   off-host provider, add a second offline recovery recipient plus a human off-host drill,
   an incident-response tabletop, manual screen-reader/200% zoom checks,

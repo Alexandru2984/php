@@ -1,6 +1,6 @@
 # Security audit
 
-**Date:** 2026-10-24
+**Date:** 2026-10-25
 **Scope:** application source, Git history, live response behaviour, nginx/PHP-FPM
 configuration, SQLite metadata and backup controls. Message bodies and secret values
 were not inspected.
@@ -13,12 +13,13 @@ Unix/FPM identity, fail-closed configuration, persistent throttling and an atomi
 cutover. The production database remained at three messages and passed integrity
 checks before and after migration. Detection, a privacy disclosure, reversible
 moderation, category-only abuse reporting, explainable submission-risk review,
-indexed search and an incident-response runbook are now deployed. R2 holds verified encrypted backups, while Google Drive
+indexed search, private author withdrawal and an incident-response runbook are now
+deployed. R2 holds verified encrypted backups, while Google Drive
 redundancy is quota-degraded. Real-browser Axe, reflow and keyboard checks now gate
 CI. First-party social preview metadata and single-message curation add no new vendor
 or private data flow. An active Telegram bot token was also found in local agent histories; file access
 has been restricted to the owner, but credential rotation remains urgent. A formal
-tabletop, data-subject operations, Lighthouse and manual screen-reader sign-off remain
+tabletop, complete data-subject operations, Lighthouse and manual screen-reader sign-off remain
 incomplete.
 
 ## Deployment verification snapshot
@@ -31,7 +32,8 @@ incomplete.
   mode `0700` directories owned by `php-guestbook`.
 - Versioned migrations ran once and then skipped idempotently. The database reported
   `integrity=ok`, zero foreign-key violations, three published messages, three indexed
-  FTS rows and seven applied migrations after the curation cutover. The rank-1 external
+  FTS rows and seven applied migrations after the curation cutover; migration 008 is
+  ready for the ownership release. The rank-1 external
   content/index integrity check passed.
 - Public probes returned `200` for HTML, JSON, RSS, CSS and `security.txt`; sensitive
   paths and path-info returned `404`, unsupported methods returned `405`, and direct
@@ -40,10 +42,10 @@ incomplete.
   sandboxed service identity. Daily jobs and the weekly restore timer are enabled;
   restored disposable backups pass integrity, foreign-key, migration and schema
   checks. The restore unit's systemd exposure score was `0.8 SAFE` at rollout.
-- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 108 unit
+- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 132 unit
   tests, HTTP/FTS integration, moderation lifecycle, health alerting and compressed
   backup/restore rejection tests. A separate Chromium job checks five viewport widths,
-  primary 44px touch targets, keyboard focus, dynamic post/search/moderation flows,
+  primary 44px touch targets, keyboard focus, nine post/search/moderation/owner flows,
   light/dark WCAG A/AA Axe rules and JavaScript/network errors against disposable state.
 - The local/CI supply-chain gate rejects sensitive tracked filenames, high-confidence
   credential signatures without logging their values, mutable Action references and
@@ -64,8 +66,8 @@ incomplete.
 | S-08 | Medium | Input type confusion can create warnings and unintended values. | Array values for `q`, `page`, `author`, `message` or `password` are cast instead of rejected. This can generate log noise or accept the literal value `Array`. | Accept only expected scalar types, use centralized input helpers, and test malformed nested parameters. |
 | S-09 | Medium | Database DDL runs on every web request and migration errors are swallowed. | `CREATE`/`ALTER`/index statements execute during bootstrap; every migration exception is treated as "column exists". Disk, permission and corruption errors can be hidden. | Move schema changes to versioned, transactional CLI migrations and keep web requests read/write-data only. |
 | S-10 | Medium | Cloudflare JavaScript Detection conflicts with CSP. | The live edge injects an inline challenge script while `script-src` disallows inline code. Browsers will block it, reducing bot signal quality. | Keep `unsafe-inline` forbidden. Use a per-response CSP nonce that Cloudflare can propagate, or intentionally disable injection for this hostname. |
-| S-11 | Medium | Core retention is publicly documented; full data-subject workflow remains. | The sessionless Privacy page now distinguishes public/indexed content, application retention, backups and third-party copies. Message identifiers detach after 24 hours, rate limits expire after seven days, and security/closed reports after 90 days. A dedicated private privacy contact, export/erasure/objection operations and key-rotation procedure are not complete. | Publish a controller contact and complete authenticated request handling; record legal basis and test purpose-key rotation. |
-| S-12 | Low | Reversible moderation and audit are deployed; purge policy remains deferred. | Five states, controlled reasons, a report queue, atomic transitions and trigger-protected append-only audit remove immediate-deletion and repudiation risk. Permanent purge and bulk actions are intentionally absent. | Define purge authorization/retention before adding permanent deletion; keep public reports non-automatic. |
+| S-11 | Medium | Core retention and self-service withdrawal are documented; full data-subject workflow remains. | The sessionless Privacy page distinguishes public/indexed content, live soft withdrawal, application retention, backups and third-party copies. Future posters get a private capability that can hide one message irreversibly from first-party public surfaces. A dedicated privacy contact, export/statutory-erasure/objection operations and key-rotation procedure are not complete. | Publish a controller contact and complete authenticated request handling and purge policy; record legal basis and test purpose-key rotation. |
+| S-12 | Low | Reversible moderation and audit are deployed; purge policy remains deferred. | Five states, controlled reasons, a report queue, atomic transitions and trigger-protected append-only audit remove immediate-deletion and repudiation risk. Moderator actions are reversible; author withdrawals are terminal and database-enforced. Permanent purge and bulk actions are intentionally absent. | Define purge authorization/retention before adding permanent deletion; keep public reports non-automatic. |
 | S-13 | Medium | Encrypted off-host copying is deployed, but provider redundancy is degraded. | The first production run age-encrypted 24 snapshots and verified all 24 at R2 with zero differences. Google Drive rejected every upload because its storage quota is exceeded; the job, health probe and pager correctly remain failed/degraded. Jobs never send plaintext or delete remote history. One recovery recipient, shared-scope provider credentials and the absence of a downloaded-artifact human drill remain failure modes. | Restore Drive capacity or replace it with an independent provider; add a second offline recipient, restrict credentials per namespace, enforce documented remote retention and execute a quarterly downloaded-artifact drill. |
 | S-14 | Low | API v1 is stateless and cache-consistent; the legacy JSON shape remains temporarily. | `/api/v1/messages` creates no session/cookie, exposes published columns only, uses signed indexed cursors, strong ETags and explicit public cache semantics. The old query-format feed is private/no-store and marked deprecated. | Migrate remaining consumers, measure usage, then remove the legacy JSON format in a separately announced release. |
 | S-15 | Low | Analytics still receives bounded telemetry, but no longer expands the remote script trust boundary. | A reviewed Umami tracker copy is versioned locally and pinned by SHA-256 in tests and the live health probe. CSP removes the analytics origin from `script-src` while retaining only `connect-src`; the tracker remains domain-bound, DNT-aware and excludes query/hash. Backend compromise can disrupt or receive the documented aggregate payload but cannot replace executable page code. | Review upstream changes before deliberately replacing the local asset and pinned digest; document analytics retention/processor basis and alert on digest drift. |
@@ -77,6 +79,88 @@ incomplete.
 | S-21 | High | The active Telegram bot token exists in local agent-session history. | A fingerprint-only comparison found the current token in three local history files. Two Codex histories were mode `0664`; they and the containing session directories are now owner-only (`0600`/`0700`). The secret remains valid and present in retained history, so permission hardening limits local exposure but does not revoke copies. The token was not added to this repository. | Regenerate the token through BotFather, atomically update the root-owned bot credential, restart and verify the allow-listed chat, then redact or securely remove historical copies under an approved retention plan. Enforce owner-only creation permissions for all future agent transcripts. |
 | S-22 | Low | Local drafts improve resilience but can leave message text on a shared device. | Draft storage is off by default, explicitly device-scoped in the UI, bounded to server field limits, expires after 24 hours and is deleted after successful submission or on request. The text-only preview uses DOM `textContent`; browser tests prove markup does not create elements or execute. A user with access to the same unlocked browser profile can still read an opted-in draft. | Keep opt-in off by default, do not sync drafts server-side, retain the clear control and re-evaluate before adding accounts, cloud sync or longer retention. |
 | S-23 | Low | Featured-message curation adds an admin-controlled ranking signal. | A stolen admin session could promote one already-public message, but cannot feature moderated content. Same-origin CSRF-protected POST, an expiring admin session, a one-row database constraint, append-only feature/unfeature audit and automatic clearing on moderation bound the impact. | Monitor unexpected feature audit events, rotate the admin credential/session on compromise and retain the one-message/public-only invariant. |
+| S-24 | Medium | An owner capability can irreversibly hide one future message but is not a complete erasure channel. | A 256-bit capability is held in an HttpOnly, Secure-in-production, SameSite Strict cookie scoped to one private path; only its HMAC is stored. Withdrawal needs session and capability CSRF, destroys the token, clears temporary identifiers, is audited and cannot be republished. Theft of a valid browser cookie or full same-origin execution can still withdraw that one message, while backups and the soft-deleted text remain. | Run the owner-token abuse tabletop, publish the dedicated privacy contact and authenticated statutory-erasure procedure, and assess successful-withdrawal anomaly detection without collecting new identity data. |
+
+## CISO review: private author withdrawal
+
+**Date:** 2026-10-25
+**Verdict:** 🟡 MITIGATE THEN SHIP — the technical blast radius is tightly bounded and
+the deployment is fail-closed, but the valid-token abuse tabletop and complete legal
+erasure workflow remain explicit operational follow-ups.
+
+### 1. Threat model (STRIDE top three)
+
+1. **Spoofing/information disclosure (low likelihood, medium impact):** a stolen
+   ownership cookie lets an attacker act as that message's author. Controls are 256
+   random bits, HttpOnly, Secure in production, SameSite Strict, an exact management
+   path, no URL/HTML/JavaScript/log projection, a database HMAC and session plus
+   capability-bound CSRF. Path scoping reduces routine transmission but is not treated
+   as a standalone security boundary, consistent with
+   [IETF RFC 6265](https://datatracker.ietf.org/doc/html/rfc6265#section-4.1.2.4).
+2. **Tampering/repudiation (low likelihood, high impact):** a forged withdrawal or a
+   later admin restore could contradict the author. The transaction consumes the
+   capability, records the controlled transition under a non-identifying logical
+   actor, and SQLite blocks republication and removal of the withdrawal marker even
+   after application rollback.
+3. **Denial of service (medium likelihood, low impact):** guesses or floods against
+   numeric management routes can create DB/log load. Missing GET capabilities stay
+   sessionless and return generic 404; POST failures use a persistent keyed limiter,
+   bounded security events and a ten-in-15-minute alert. A valid stolen capability
+   affects one message, not an account or collection.
+
+The cookie flags follow PHP's documented `setcookie` controls for path, Secure,
+HttpOnly and SameSite, while CSRF remains separately required as recommended by the
+[PHP session security guidance](https://www.php.net/manual/en/features.session.security.management.php).
+
+### 2. Blast radius and annual-loss input
+
+One stolen capability can hide only its one future submission. A database-only leak
+reveals keyed digests, not the random browser values. Full application-secret plus DB
+loss still does not make the random capabilities enumerable, while browser takeover,
+same-origin script execution or Cloudflare/TLS-edge compromise can reach a capability
+in flight. Existing pre-migration messages have no capability. No responsible FAIR/ALE
+number can be invented without capability-theft frequency, incident labour/rate,
+wrongful-removal cost, legal cost and affected-person notification cost.
+
+### 3. Detection and MTTD
+
+Every successful or rejected mutation emits fixed-code `message.owner_remove` state;
+the append-only audit records a successful transition. Ten failures/blocks in 15
+minutes fail the next five-minute health run and reach the existing Telegram pager.
+Health and every restore drill verify token shape and terminal-row invariants; unit,
+HTTP and Chromium CI cover wrong/replayed tokens, stateless misses, cookie flags,
+CSRF, first-party surface removal, rollback safety, mobile reflow and WCAG. A single
+valid stolen-token use resembles a legitimate withdrawal, so its MTTD remains manual
+audit/user-report dependent without collecting more identity data.
+
+### 4. Response, runbook and rehearsal
+
+The [incident runbook](INCIDENT_RESPONSE.md) now covers route disablement by immutable
+rollback, evidence preservation, bulk digest invalidation after a verified snapshot,
+Cloudflare/search cleanup and the prohibition on silent backup republication. The
+feature cookie is consumed on success, but an operator cannot remotely erase an
+unvisited browser cookie; clearing the server digest invalidates it. No owner-token
+tabletop has yet been completed, so date, containment time, notification decision and
+corrective owners still need a recorded exercise.
+
+### 5. Regulatory boundary
+
+Self-service withdrawal removes the record from application-controlled publication
+but retains soft-deleted text, audit history, backups and possible third-party copies;
+it is therefore not represented as complete GDPR erasure. The public notice retains a
+Report fallback and states the missing authenticated rights channel. Article 17 and
+its exceptions require case-specific handling, and a qualifying breach keeps the
+Article 33 supervisory-authority window of up to 72 hours; see the
+[official GDPR text](https://eur-lex.europa.eu/legal-content/EN/TXT/?uri=CELEX%3A32016R0679).
+
+### 6. Vendors and supply chain
+
+The change adds zero package, API, credential, subprocess or new processor. It adds
+one first-party functional cookie per future message; the self-hosted analytics script
+is absent from the private page. Cloudflare already terminates the site's HTTPS and can
+therefore observe the cookie on the private path inside the existing edge boundary.
+Processor terms, region/transfer basis and edge-log retention remain operator records
+outside this repository.
 
 ## CISO review: featured-message curation
 

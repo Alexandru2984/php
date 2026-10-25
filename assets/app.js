@@ -3,6 +3,13 @@
 (function () {
     'use strict';
 
+    // Successful posting can land on the private management page, which has no
+    // compose form. Honour its server-issued cleanup marker without exposing
+    // the ownership capability to script.
+    if (document.querySelector('[data-clear-compose-draft]')) {
+        try { localStorage.removeItem('gb-compose-draft-v1'); } catch (e) {}
+    }
+
     // ---- Theme toggle ----------------------------------------------------
     function currentTheme() {
         var explicit = document.documentElement.getAttribute('data-theme');

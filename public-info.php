@@ -131,9 +131,15 @@ $socialImageUrl = APP_ORIGIN . asset('assets/social-card.png');
                     <li>A purpose-separated keyed network identifier and duplicate-content fingerprint are detached from a message after 24 hours.</li>
                     <li>Purpose-separated rate-limit records expire after seven days.</li>
                     <li>Security events and closed abuse reports are deleted after 90 days. Open reports remain until human review.</li>
+                    <li>Unused message-ownership digests are detached after 366 days, once their one-year browser cookie has expired.</li>
                     <li>Append-only moderator actions remain for accountability; permanent message purge is not currently available.</li>
                 </ul>
                 <p>Database backups can temporarily retain records after a live change. Local plaintext snapshots are retained for 14 days and local encrypted off-site staging copies for 30 days; provider-side retention is controlled separately and remains under operational review.</p>
+            </section>
+            <section>
+                <h2>Private control for new messages</h2>
+                <p>After a new submission, this browser receives a random ownership key in an HttpOnly, SameSite Strict cookie restricted to that message's private management path. The application database stores only a keyed digest. The key is not placed in the URL, page HTML, analytics or public feeds, and the private page does not display the message text.</p>
+                <p>The cookie can remain for up to one year, may be cleared earlier by browser settings, and is deleted after use. There is no account or recovery copy: if the cookie is lost, use Report on a published message. Cloudflare terminates the site's HTTPS connection and is therefore still inside the existing edge-processing boundary for requests carrying the cookie.</p>
             </section>
             <section>
                 <h2>Reports, drafts and analytics</h2>
@@ -147,7 +153,8 @@ $socialImageUrl = APP_ORIGIN . asset('assets/social-card.png');
             </section>
             <section>
                 <h2>Removal and access requests</h2>
-                <p>Use Report on a published message to request review without adding more personal details. A dedicated private channel and automated workflow for access, export, erasure or objection requests are not yet published. This is a known operational gap, and this page must not be read as a complete statutory privacy notice.</p>
+                <p>A browser that still holds the ownership cookie can remove its message immediately from this site's public pages, search, archives, feeds, API and sitemap. The capability is then destroyed and the message cannot be republished through ordinary moderation. The text remains soft-deleted in the live database for the documented accountability lifecycle and can remain in backups or external copies.</p>
+                <p>This self-service withdrawal is not a complete legal erasure workflow. Use Report on a published message to request review without adding more personal details. A dedicated private channel and automated workflow for access, export, statutory erasure or objection requests are not yet published. This is a known operational gap, and this page must not be read as a complete statutory privacy notice.</p>
                 <p>For a security vulnerability, use <a href="/.well-known/security.txt">security.txt</a>; do not use that route for ordinary content reports.</p>
             </section>
             <?php else: ?>
@@ -164,10 +171,11 @@ $socialImageUrl = APP_ORIGIN . asset('assets/social-card.png');
                 <h2>Submission review</h2>
                 <p>New messages are checked with fixed, explainable signals such as recent duplication, link density, address-like names, repeated runs, very fast submission and invisible Unicode controls. A score at or above the review threshold queues the message as pending.</p>
                 <p>These signals never delete a message. A human moderator can publish, hide, mark as spam, mark as deleted or return a message to pending review using a controlled reason.</p>
+                <p>For new submissions, the posting browser also receives a private, cookie-bound management page. Its owner can withdraw that one message from all application-controlled public surfaces. An owner withdrawal is terminal: moderators can see the controlled reason and audit event but cannot republish the message.</p>
             </section>
             <section>
                 <h2>Accountability and limits</h2>
-                <p>Successful moderation changes record the previous state, new state, reason, message number, logical moderator and timestamp in append-only audit history. Actions are reversible; permanent purge remains intentionally unavailable.</p>
+                <p>Successful moderation changes record the previous state, new state, reason, message number, logical actor and timestamp in append-only audit history. Moderator actions are reversible; author withdrawals are not publishable again. Permanent purge remains intentionally unavailable.</p>
                 <p>Automated signals can produce false positives, and distributed or varied abuse can evade local limits. Review backlogs are monitored, while dedicated edge limits and a formal appeal channel remain follow-up work.</p>
             </section>
             <?php endif; ?>

@@ -142,6 +142,7 @@ const RATE_LIMIT_PER_HOUR = 12;   // max posts per client IP per hour
 const RISK_REVIEW_THRESHOLD = 40; // queue for human review; never auto-delete
 const ADMIN_IDLE_SECONDS  = 1800; // 30 minutes
 const ADMIN_MAX_SECONDS   = 43200; // 12 hours
+const MESSAGE_OWNER_COOKIE_SECONDS = 31536000; // one year on the private management path
 
 // ---------------------------------------------------------------------------
 // Session hardening. CLI maintenance and migration jobs do not have a browser

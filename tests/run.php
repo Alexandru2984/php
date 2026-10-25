@@ -12,6 +12,7 @@ define('MESSAGE_MAX', 2000);
 define('RATE_LIMIT_SECONDS', 15);
 define('RATE_LIMIT_PER_HOUR', 12);
 define('RISK_REVIEW_THRESHOLD', 40);
+define('MESSAGE_OWNER_COOKIE_SECONDS', 31536000);
 
 $_SESSION = [];
 $_POST = [];
@@ -62,6 +63,7 @@ check(
 );
 check(public_message_path(42) === '/messages/42', 'message path is stable and clean');
 check(public_message_path(42, true) === '/messages/42#m42', 'message fragment matches its card');
+check(message_manage_path(42) === '/messages/42/manage', 'private management path is stable and clean');
 check(
     public_archive_path(2026, 10) === '/archive/2026/10'
         && public_archive_path(2026, 10, 3) === '/archive/2026/10?page=3',
@@ -83,6 +85,13 @@ try {
     $invalidMessagePathRejected = true;
 }
 check($invalidMessagePathRejected, 'message path rejects invalid identifiers');
+$invalidManagePathRejected = false;
+try {
+    message_manage_path(0);
+} catch (InvalidArgumentException) {
+    $invalidManagePathRejected = true;
+}
+check($invalidManagePathRejected, 'management path rejects invalid identifiers');
 $invalidArchivePathRejected = false;
 try {
     public_archive_path(2026, 13);
@@ -101,6 +110,22 @@ $_POST['csrf'] = $firstToken;
 check(csrf_valid(), 'matching CSRF token is valid');
 $secondToken = csrf_rotate();
 check($secondToken !== $firstToken && !csrf_valid(), 'CSRF rotation invalidates the old token');
+$ownerToken = message_owner_token_create();
+check(
+    strlen($ownerToken) === 43 && message_owner_token_valid($ownerToken),
+    'message ownership capability is canonical 256-bit base64url'
+);
+check(
+    strlen(message_owner_token_hash($ownerToken)) === 64
+        && message_owner_token_hash($ownerToken) !== hash('sha256', $ownerToken),
+    'message ownership capability is stored as a purpose-separated keyed digest'
+);
+$ownerCsrf = message_owner_csrf_token(42, $ownerToken);
+$_POST['owner_csrf'] = $ownerCsrf;
+check(message_owner_csrf_valid(42, $ownerToken), 'owner action binds session CSRF to the capability');
+csrf_rotate();
+check(!message_owner_csrf_valid(42, $ownerToken), 'owner action token expires with its browser session CSRF');
+$_POST = [];
 
 check(string_input(['value' => 'ok'], 'value') === 'ok', 'string input is accepted');
 check(string_input(['value' => ['nested']], 'value') === null, 'array input is rejected');
@@ -201,7 +226,8 @@ check(
     $columns === [
         'id', 'author', 'content', 'ip_hash', 'created_at', 'status', 'deleted_at',
         'moderation_reason', 'moderated_at', 'content_fingerprint', 'risk_score',
-        'risk_flags', 'featured_at', 'feature_changed_at',
+        'risk_flags', 'featured_at', 'feature_changed_at', 'owner_token_hash',
+        'owner_withdrawn_at',
     ],
     'migrated schema has expected columns'
 );
@@ -223,6 +249,18 @@ check(
             ))"
     )->fetchColumn() === 3,
     'featured-message uniqueness and rollback-compatible cleanup exist'
+);
+check(
+    (int) $db->query(
+         "SELECT COUNT(*) FROM sqlite_master
+         WHERE (type = 'index' AND name = 'idx_messages_owner_token_hash')
+            OR (type = 'trigger' AND name IN (
+                'messages_owner_withdrawal_no_publish',
+                'messages_owner_withdrawal_no_insert_publish',
+                'messages_owner_withdrawal_marker_immutable'
+            ))"
+    )->fetchColumn() === 4,
+    'ownership capability uniqueness and irreversible-withdrawal guard exist'
 );
 
 $seoDb = new PDO('sqlite::memory:');
@@ -367,8 +405,15 @@ $firstSubmission = create_submission(
 check(
     $firstSubmission['status'] === 'published'
         && $firstSubmission['score'] === 0
-        && $firstSubmission['flags'] === [],
+        && $firstSubmission['flags'] === []
+        && message_owner_token_valid($firstSubmission['owner_token']),
     'a normal submission publishes without risk flags'
+);
+check(
+    (string) $db->query(
+        'SELECT owner_token_hash FROM messages WHERE id = ' . (int) $firstSubmission['id']
+    )->fetchColumn() === message_owner_token_hash($firstSubmission['owner_token']),
+    'submission stores only the keyed ownership digest'
 );
 $duplicateSubmission = create_submission(
     $db,
@@ -599,6 +644,85 @@ try {
     $appendOnly = true;
 }
 check($appendOnly, 'admin audit events cannot be deleted');
+
+$ownedSubmission = create_submission(
+    $db,
+    'Owner fixture',
+    'A separately owned message',
+    $subject,
+    [],
+    null,
+    $riskNow + 100
+);
+$ownedId = (int) $ownedSubmission['id'];
+$ownedToken = $ownedSubmission['owner_token'];
+$wrongOwnerToken = message_owner_token_create();
+check(
+    owned_message($db, $ownedId, $wrongOwnerToken) === null
+        && !withdraw_owned_message($db, $ownedId, $wrongOwnerToken, 699),
+    'wrong ownership capability reveals no private metadata and changes nothing'
+);
+$ownedMetadata = owned_message($db, $ownedId, $ownedToken);
+check(
+    $ownedMetadata !== null
+        && (int) $ownedMetadata['id'] === $ownedId
+        && $ownedMetadata['status'] === 'published'
+        && !array_key_exists('owner_token_hash', $ownedMetadata)
+        && !array_key_exists('content', $ownedMetadata),
+    'valid capability returns only minimal private management metadata'
+);
+check(
+    set_message_featured($db, $ownedId, true, $subject, 698)
+        && withdraw_owned_message($db, $ownedId, $ownedToken, 700),
+    'author can atomically withdraw a currently featured message'
+);
+$withdrawn = $db->query(
+    "SELECT status, deleted_at, moderation_reason, moderated_at, owner_token_hash,
+            owner_withdrawn_at, ip_hash, content_fingerprint, featured_at
+     FROM messages WHERE id = {$ownedId}"
+)->fetch(PDO::FETCH_ASSOC);
+check(
+    $withdrawn !== false
+        && $withdrawn['status'] === 'deleted'
+        && $withdrawn['deleted_at'] === '1970-01-01 00:11:40'
+        && $withdrawn['moderation_reason'] === 'requested'
+        && $withdrawn['moderated_at'] === '1970-01-01 00:11:40'
+        && $withdrawn['owner_withdrawn_at'] === '1970-01-01 00:11:40'
+        && $withdrawn['owner_token_hash'] === null
+        && $withdrawn['ip_hash'] === null
+        && $withdrawn['content_fingerprint'] === null
+        && $withdrawn['featured_at'] === null,
+    'withdrawal clears capabilities and temporary identifiers while hiding the message'
+);
+check(
+    (int) $db->query(
+        "SELECT COUNT(*) FROM admin_audit_events
+         WHERE event_type = 'message.delete' AND related_id = {$ownedId}
+           AND previous_state = 'published' AND new_state = 'deleted'
+           AND reason_code = 'requested'"
+    )->fetchColumn() === 1,
+    'author withdrawal appends a controlled accountability event'
+);
+check(
+    !moderate_message($db, $ownedId, 'published', 'restored', $subject, 701)
+        && !withdraw_owned_message($db, $ownedId, $ownedToken, 702),
+    'withdrawn message cannot be restored or replayed through application helpers'
+);
+$directRestoreBlocked = false;
+try {
+    $db->exec("UPDATE messages SET status = 'published' WHERE id = {$ownedId}");
+} catch (PDOException) {
+    $directRestoreBlocked = true;
+}
+check($directRestoreBlocked, 'database blocks publication of an owner-withdrawn message');
+$markerRemovalBlocked = false;
+try {
+    $db->exec("UPDATE messages SET owner_withdrawn_at = NULL WHERE id = {$ownedId}");
+} catch (PDOException) {
+    $markerRemovalBlocked = true;
+}
+check($markerRemovalBlocked, 'database keeps the owner-withdrawal marker immutable');
+
 $db->exec(
     "INSERT INTO messages (author, content, created_at)
      VALUES ('API first', 'first page fixture', '2030-01-01 00:00:00'),
@@ -653,18 +777,22 @@ check(
 );
 check(!api_etag_matches('"older"', '"current"'), 'non-matching ETag is rejected');
 $db->exec(
-    "INSERT INTO messages (author, content, ip_hash, content_fingerprint, created_at)
+    "INSERT INTO messages
+        (author, content, ip_hash, content_fingerprint, owner_token_hash, created_at)
      VALUES ('Alice', 'old', 'pseudonymous', '" . str_repeat('a', 64) . "',
+             '" . str_repeat('b', 64) . "',
              '1970-01-01 00:00:00')"
 );
-$pruned = prune_security_records($db, 100 + 91 * 86400);
+$pruned = prune_security_records($db, 100 + 367 * 86400);
 check($pruned['security_events'] === 1, 'expired security events are pruned');
 check($pruned['abuse_reports'] === 1, 'old reviewed abuse reports are pruned');
 check($pruned['message_identifiers'] === 1, 'old message identifier is detached');
+check($pruned['owner_capabilities'] === 1, 'expired ownership capability digest is detached');
 check(
     (int) $db->query(
         "SELECT COUNT(*) FROM messages
-         WHERE content = 'old' AND ip_hash IS NULL AND content_fingerprint IS NULL"
+         WHERE content = 'old' AND ip_hash IS NULL AND content_fingerprint IS NULL
+           AND owner_token_hash IS NULL"
     )->fetchColumn() === 1,
     'posting and duplicate identifiers are both detached after 24 hours'
 );

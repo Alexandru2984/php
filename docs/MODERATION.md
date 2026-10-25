@@ -42,6 +42,19 @@ Public reports never hide content automatically. The admin reviews the queue and
 resolve/dismiss a report separately from changing the message state, preventing a
 small number of reports from becoming a censorship primitive.
 
+New submissions also receive a separate owner capability. It is 256 random bits,
+stored raw only in an HttpOnly/SameSite Strict cookie scoped to
+`/messages/{id}/manage`; SQLite stores a purpose-separated HMAC. The private page is
+`no-store`/`noindex`, excludes analytics and message text, and requires same-origin,
+session CSRF and capability-bound CSRF checks for withdrawal. The posting browser can
+move its one message from any state to `deleted/requested`; the transaction clears the
+capability, temporary identifiers and featured state and appends a logical owner audit
+event. A database trigger and the moderation helper prevent republication, including
+after an application rollback. Losing the cookie means losing self-service control;
+the public Report route remains the fallback.
+Unused ownership digests are detached after 366 days by scheduled maintenance, one
+day after the browser cookie's maximum lifetime.
+
 ## Featured-message curation
 
 The admin can highlight one published message at a time. Featuring another message
@@ -77,6 +90,10 @@ cannot publish hidden content through this action.
   using only `component=moderation reason=open-report-threshold`.
 - Ten simultaneous pending messages likewise page with only
   `component=moderation reason=pending-message-threshold`.
+- Ten failed/blocked owner-withdrawal attempts in 15 minutes page on the next
+  five-minute probe using only `component=security reason=owner-remove-threshold`.
+- Health and restore drills reject malformed capability digests or a withdrawn row
+  that is public, tokenized, identifiable, featured or carries the wrong reason.
 - Login, blocked actions and review outcomes remain visible in bounded security logs;
   alert payloads never contain the author, message, report category or identifiers.
 
@@ -130,8 +147,10 @@ retention, risk scoring and append-only triggers. HTTP and browser tests exercis
 anonymous-to-admin flow through real cookies, CSRF and redirects. The health smoke test proves backlog alert
 generation without using production data.
 
-Migrations `004_moderation_audit.sql`, `006_submission_risk.sql` and
-`007_featured_message.sql` only add columns, tables, indexes and triggers;
+Migrations `004_moderation_audit.sql`, `006_submission_risk.sql`,
+`007_featured_message.sql` and `008_message_ownership.sql` only add columns, tables,
+indexes and triggers;
 the preceding release continues to read the database if the application symlink is
-rolled back. Do not remove the migration record or restore an older database over a
-live SQLite writer.
+rolled back. Migration 008's trigger intentionally rejects an older release's attempt
+to republish an owner-withdrawn row. Do not remove the migration record or restore an
+older database over a live SQLite writer.

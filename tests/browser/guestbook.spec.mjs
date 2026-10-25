@@ -111,8 +111,25 @@ test('keyboard navigation, theme persistence and posting work end to end', async
   expect(await page.evaluate(() => localStorage.getItem('gb-compose-draft-v1'))).not.toBeNull();
   await page.getByRole('button', { name: 'Post message' }).click();
 
+  await expect(page).toHaveURL(/\/messages\/\d+\/manage(?:#main-content)?$/);
   await expect(page.getByRole('status')).toContainText('Message posted!');
+  await expect(page.getByRole('heading', { level: 1, name: /Manage message #\d+/ })).toBeVisible();
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'noindex, nofollow, noarchive');
+  await expect(page.locator('link[rel="canonical"]')).toHaveCount(0);
+  await expect(page.getByText('Responsive accessibility flow', { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => localStorage.getItem('gb-compose-draft-v1'))).toBeNull();
+  expect(await page.evaluate(() => document.cookie)).not.toContain('gbowner_');
+  const managePath = new URL(page.url()).pathname;
+  const publicPath = managePath.replace(/\/manage$/, '');
+  const ownerCookies = (await page.context().cookies()).filter((cookie) => cookie.name.startsWith('gbowner_'));
+  expect(ownerCookies).toHaveLength(1);
+  expect(ownerCookies[0]).toMatchObject({ httpOnly: true, sameSite: 'Strict', path: managePath });
+  const manageResults = await new AxeBuilder({ page }).withTags(wcagTags).analyze();
+  expect(violationSummary(manageResults), 'private management WCAG violations').toEqual([]);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(375);
+
+  await page.getByRole('link', { name: 'View public message' }).click();
+  await expect(page).toHaveURL(new RegExp(`${publicPath}$`));
   await expect(page.getByText('Responsive accessibility flow', { exact: true })).toBeVisible();
   for (const target of [page.locator('.permalink'), page.locator('.report-menu > summary')]) {
     const box = await target.boundingBox();
@@ -329,7 +346,12 @@ test('risk-queued duplicate is private, explained to admin and reversibly publis
   await page.getByRole('textbox', { name: /Name/ }).fill('Queued browser check');
   await page.getByRole('textbox', { name: 'Message' }).fill('Responsive accessibility flow');
   await page.getByRole('button', { name: 'Post message' }).click();
+  await expect(page).toHaveURL(/\/messages\/\d+\/manage(?:#main-content)?$/);
   await expect(page.getByRole('status')).toContainText('queued for moderator review');
+  await expect(page.getByText('Awaiting moderator review')).toBeVisible();
+  await expect(page.getByText('Responsive accessibility flow', { exact: true })).toHaveCount(0);
+
+  await page.goto('/');
   await expect(page.getByText('Responsive accessibility flow', { exact: true })).toHaveCount(1);
 
   await page.locator('details.admin > summary').click();
@@ -353,5 +375,37 @@ test('risk-queued duplicate is private, explained to admin and reversibly publis
     .getByRole('button', { name: 'Publish' }).click();
   await expect(page.getByRole('status')).toContainText('Moderation state updated');
   await expect(page.getByText('Responsive accessibility flow', { exact: true })).toHaveCount(2);
+  expect(runtimeFailures).toEqual([]);
+});
+
+test('author can privately withdraw a message and it stays unavailable', async ({ page }) => {
+  const runtimeFailures = observeRuntimeFailures(page);
+  await page.setViewportSize({ width: 320, height: 812 });
+  await page.goto('/');
+
+  await page.getByRole('textbox', { name: /Name/ }).fill('Owner browser check');
+  await page.getByRole('textbox', { name: 'Message' }).fill('Owner withdrawal browser fixture');
+  await page.getByRole('button', { name: 'Post message' }).click();
+  await expect(page).toHaveURL(/\/messages\/\d+\/manage(?:#main-content)?$/);
+  const managePath = new URL(page.url()).pathname;
+  const publicPath = managePath.replace(/\/manage$/, '');
+
+  await expect(page.getByRole('heading', { level: 1, name: /Manage message #\d+/ })).toBeVisible();
+  await expect(page.getByText('Owner withdrawal browser fixture', { exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  const results = await new AxeBuilder({ page }).withTags(wcagTags).analyze();
+  expect(violationSummary(results), 'owner withdrawal WCAG violations').toEqual([]);
+
+  page.once('dialog', async (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Remove my message' }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('status')).toContainText('removed from the public guestbook');
+  const response = await page.request.get(publicPath);
+  expect(response.status()).toBe(404);
+  expect(await response.text()).toBe('Message not found.');
+  const manageResponse = await page.request.get(managePath);
+  expect(manageResponse.status()).toBe(404);
+  expect(await manageResponse.text()).toBe('Not found.');
+  expect((await page.context().cookies()).filter((cookie) => cookie.name.startsWith('gbowner_'))).toHaveLength(0);
   expect(runtimeFailures).toEqual([]);
 });

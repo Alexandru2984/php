@@ -18,6 +18,7 @@ $publicInfoPageSlug = match ($requestPath) {
 };
 $isPublicInfoPage = $publicInfoPageSlug !== null;
 $messagePathId = null;
+$messageManagePathId = null;
 $archiveYear = null;
 $archiveMonth = null;
 if (preg_match('#\A/messages/([1-9][0-9]{0,18})\z#D', $requestPath, $messagePathMatch) === 1) {
@@ -26,14 +27,26 @@ if (preg_match('#\A/messages/([1-9][0-9]{0,18})\z#D', $requestPath, $messagePath
         $messagePathId = $parsedMessagePathId;
     }
 }
+if (preg_match('#\A/messages/([1-9][0-9]{0,18})/manage\z#D', $requestPath, $messageManagePathMatch) === 1) {
+    $parsedMessageManagePathId = filter_var($messageManagePathMatch[1], FILTER_VALIDATE_INT);
+    if ($parsedMessageManagePathId !== false) {
+        $messageManagePathId = $parsedMessageManagePathId;
+    }
+}
 if (preg_match('#\A/archive/([12][0-9]{3})/(0[1-9]|1[0-2])\z#D', $requestPath, $archivePathMatch) === 1) {
     $archiveYear = (int) $archivePathMatch[1];
     $archiveMonth = (int) $archivePathMatch[2];
 }
 $isArchiveMonth = $archiveYear !== null && $archiveMonth !== null;
+$ownerCookieHint = $messageManagePathId === null
+    ? null
+    : ($_COOKIE['gbowner_' . $messageManagePathId] ?? null);
+$hasOwnerCookieHint = is_string($ownerCookieHint)
+    && preg_match('/\A[A-Za-z0-9_-]{43}\z/D', $ownerCookieHint) === 1;
 $isInteractiveUi = in_array($requestPath, ['/', '/index.php'], true)
     || $messagePathId !== null
-    || $isArchiveMonth;
+    || $isArchiveMonth
+    || ($messageManagePathId !== null && $hasOwnerCookieHint);
 $rawFormatHint = $_GET['format'] ?? null;
 $isStatelessLegacyRead = $isInteractiveUi
     && in_array($method, ['GET', 'HEAD'], true)
@@ -70,6 +83,7 @@ if (!in_array($method, ['GET', 'HEAD', 'POST'], true)) {
     abort_response(405, 'Method not allowed.');
 }
 if (!$isApiV1 && !$isSitemap && !$isFeed && !$isJsonFeed && !$isPublicInfoPage && $messagePathId === null
+    && $messageManagePathId === null
     && !$isArchiveMonth
     && !empty($_SERVER['PATH_INFO'])) {
     abort_response(404, 'Not found.');
@@ -227,6 +241,93 @@ if ($isSitemap || $isFeed || $isJsonFeed) {
         $method,
         true
     );
+}
+
+// ---------------------------------------------------------------------------
+// Private author management. Invalid capabilities deliberately look missing.
+// ---------------------------------------------------------------------------
+if ($messageManagePathId !== null) {
+    if ($_GET !== []) {
+        abort_response(400, 'Unsupported query parameter.');
+    }
+    $ownerToken = message_owner_cookie_token($messageManagePathId);
+    $managedMessage = $ownerToken === null
+        ? null
+        : owned_message($pdo, $messageManagePathId, $ownerToken);
+    if ($managedMessage === null) {
+        if ($method === 'POST') {
+            $ownerSubject = client_ip_hash('message-owner-remove');
+            $retryAfter = rate_limit_retry_after($pdo, 'message-owner-remove', $ownerSubject);
+            if ($retryAfter === 0) {
+                $retryAfter = rate_limit_record_failure(
+                    $pdo,
+                    'message-owner-remove',
+                    $ownerSubject,
+                    10,
+                    900,
+                    900
+                );
+            }
+            security_event(
+                $pdo,
+                'message.owner_remove',
+                $retryAfter > 0 ? 'blocked' : 'failure',
+                $ownerSubject,
+                $messageManagePathId
+            );
+        }
+        abort_response(404, 'Not found.');
+    }
+
+    header('Cache-Control: private, no-store, max-age=0');
+    header('Content-Type: text/html; charset=utf-8');
+    header('Pragma: no-cache');
+    header('X-Robots-Tag: noindex, noarchive');
+    header('Referrer-Policy: same-origin');
+    if ($method === 'POST') {
+        if (!same_origin_request()
+            || !csrf_valid()
+            || !message_owner_csrf_valid($messageManagePathId, $ownerToken)) {
+            security_event(
+                $pdo,
+                'message.owner_remove',
+                'failure',
+                client_ip_hash('message-owner-remove'),
+                $messageManagePathId
+            );
+            abort_response(403, 'Unable to verify this request.');
+        }
+        if (string_input($_POST, 'action') !== 'owner_remove') {
+            abort_response(400, 'Invalid form data.');
+        }
+        if (!withdraw_owned_message($pdo, $messageManagePathId, $ownerToken)) {
+            security_event(
+                $pdo,
+                'message.owner_remove',
+                'failure',
+                client_ip_hash('message-owner-remove'),
+                $messageManagePathId
+            );
+            abort_response(404, 'Not found.');
+        }
+        security_event($pdo, 'message.owner_remove', 'success', null, $messageManagePathId);
+        message_owner_cookie_expire($messageManagePathId);
+        flash_set('success', 'Your message was removed from the public guestbook.');
+        redirect('/');
+    }
+
+    $ownerCsrf = message_owner_csrf_token($messageManagePathId, $ownerToken);
+    $flash = flash_get();
+    ob_start();
+    require __DIR__ . '/message-manage.php';
+    $manageBody = ob_get_clean();
+    if (!is_string($manageBody)) {
+        abort_response(500, 'Unable to render page.');
+    }
+    if ($method !== 'HEAD') {
+        echo $manageBody;
+    }
+    exit;
 }
 
 if (!$isInteractiveUi) {
@@ -491,10 +592,13 @@ if ($method === 'POST') {
         $_SESSION['last_post_at'] = $submittedAt;
         $_SESSION['compose_issued_at'] = $submittedAt;
         $_SESSION['clear_compose_draft'] = true;
+        if (!message_owner_cookie_set($result['id'], $result['owner_token'])) {
+            throw new RuntimeException('Unable to set message ownership cookie');
+        }
         flash_set('success', $result['status'] === 'pending'
             ? 'Message received and queued for moderator review.'
             : 'Message posted!');
-        redirect('/');
+        redirect(message_manage_path($result['id']));
     }
 
     redirect('/');
@@ -633,7 +737,7 @@ if ($isAdmin) {
     }
     $moderatedMessages = $pdo->query(
         "SELECT id, author, content, status, moderation_reason, moderated_at, created_at,
-                risk_score, risk_flags
+                risk_score, risk_flags, owner_withdrawn_at
          FROM messages WHERE status != 'published'
          ORDER BY COALESCE(moderated_at, deleted_at, created_at) DESC, id DESC LIMIT 30"
     )->fetchAll();
@@ -1223,6 +1327,9 @@ $reportLabels = [
                                 <?php endforeach; ?>
                             </div>
                             <?php endif; ?>
+                            <?php if ($moderated['owner_withdrawn_at'] !== null): ?>
+                            <p class="owner-withdrawn-note">Withdrawn by its author · cannot be republished.</p>
+                            <?php else: ?>
                             <div class="review-actions moderation-actions">
                             <form method="POST">
                                 <?php echo csrf_field(); ?>
@@ -1259,6 +1366,7 @@ $reportLabels = [
                                 <button class="btn secondary compact" type="submit">Update</button>
                             </form>
                             </div>
+                            <?php endif; ?>
                         </article>
                     <?php endforeach; ?>
                     </div>
@@ -1336,6 +1444,7 @@ $reportLabels = [
             <p>Messages and names are public. A keyed, non-reversible network identifier is used for abuse prevention and detached from messages after 24 hours. Submissions may be queued for human review using fixed signals such as recent duplication, link density and invisible Unicode controls; no message is automatically deleted. The keyed duplicate fingerprint is also removed after 24 hours. Security events are retained for up to 90 days.</p>
             <p>Abuse reports contain only the selected category and message number. They do not store a reporter identifier or free-text explanation. Reviewed reports are deleted after 90 days; minimal append-only admin actions remain for accountability.</p>
             <p>Draft saving is optional. When enabled, the name and message stay only in this browser's local storage, expire after 24 hours and are removed after a successful submission. Previewing never sends additional data or renders message HTML.</p>
+            <p>New submissions receive a private management page backed by a random HttpOnly, SameSite Strict cookie scoped to that path; only a keyed digest is stored in the database. The posting browser can withdraw its message from every application-controlled public surface, after which ordinary moderation cannot republish it. This is a soft withdrawal, not complete statutory erasure: audit records, backups and external copies can remain.</p>
             <?php if (ANALYTICS_WEBSITE_ID !== ''): ?>
             <p>This deployment loads a reviewed, versioned analytics tracker from this site and sends aggregate page and performance data to the self-hosted <code>analytics.micutu.com</code> endpoint. It respects Do Not Track and excludes query strings, URL fragments and form content.</p>
             <?php else: ?>

@@ -341,8 +341,11 @@ invalid_post_code="$(request_code \
 validation_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
 grep --quiet 'value="Remember me"' <<<"${validation_html}"
 
+post_headers="${tmp_dir}/post-headers.txt"
 post_code="$(request_code \
     --cookie "${cookie_jar}" \
+    --cookie-jar "${cookie_jar}" \
+    --dump-header "${post_headers}" \
     --header "Origin: ${APP_ORIGIN}" \
     --data-urlencode "csrf=${csrf}" \
     --data-urlencode 'action=post' \
@@ -354,6 +357,43 @@ post_code="$(request_code \
 
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" 'SELECT COUNT(*) FROM messages;')" == 1 ]]
 message_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT id FROM messages WHERE status = 'published' LIMIT 1;")"
+manage_path="/messages/${message_id}/manage"
+grep --ignore-case --quiet "^Location: ${manage_path}" "${post_headers}"
+grep --ignore-case --quiet "^Set-Cookie: gbowner_${message_id}=.*HttpOnly.*SameSite=Strict" "${post_headers}"
+grep --ignore-case --quiet "Path=${manage_path}" "${post_headers}"
+if grep --ignore-case '^Location:' "${post_headers}" | grep --quiet 'gbowner\|token'; then
+    echo 'Ownership capability unexpectedly appeared in the redirect URL.' >&2
+    exit 1
+fi
+
+sessions_before_private_miss="$(find "${web_session_dir}" -type f | wc -l)"
+[[ "$(request_code "${APP_ORIGIN}${manage_path}")" == 404 ]]
+sessions_after_private_miss="$(find "${web_session_dir}" -type f | wc -l)"
+[[ "${sessions_after_private_miss}" == "${sessions_before_private_miss}" ]]
+
+manage_headers="${tmp_dir}/manage-headers.txt"
+manage_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-jar "${cookie_jar}" \
+    --dump-header "${manage_headers}" "${APP_ORIGIN}${manage_path}")"
+grep --ignore-case --quiet '^Cache-Control: private, no-store, max-age=0' "${manage_headers}"
+grep --ignore-case --quiet '^X-Robots-Tag: noindex, noarchive' "${manage_headers}"
+grep --ignore-case --quiet '^Referrer-Policy: same-origin' "${manage_headers}"
+grep --fixed-strings --quiet '<meta name="robots" content="noindex, nofollow, noarchive">' <<<"${manage_html}"
+grep --fixed-strings --quiet 'Manage message #' <<<"${manage_html}"
+grep --fixed-strings --quiet 'Message posted!' <<<"${manage_html}"
+grep --fixed-strings --quiet "href=\"/messages/${message_id}\"" <<<"${manage_html}"
+grep --fixed-strings --quiet 'data-clear-compose-draft' <<<"${manage_html}"
+if grep --fixed-strings --quiet 'Hello from the isolated smoke test' <<<"${manage_html}" \
+    || grep --quiet 'analytics.js\|rel="canonical"\|gbowner_' <<<"${manage_html}"; then
+    echo 'Private management page exposed content, analytics, canonical metadata or cookie names.' >&2
+    exit 1
+fi
+stored_owner_hash="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT owner_token_hash FROM messages WHERE id = ${message_id};")"
+[[ "${stored_owner_hash}" =~ ^[0-9a-f]{64}$ ]]
+if grep --fixed-strings --quiet "${stored_owner_hash}" <<<"${manage_html}"; then
+    echo 'Stored ownership digest unexpectedly appeared in HTML.' >&2
+    exit 1
+fi
+
 legacy_permalink_headers="${tmp_dir}/legacy-permalink-headers.txt"
 legacy_permalink_body="${tmp_dir}/legacy-permalink-body.txt"
 [[ "$(curl --silent --show-error --dump-header "${legacy_permalink_headers}" \
@@ -399,8 +439,11 @@ duplicate_cookie_jar="${tmp_dir}/duplicate-cookies.txt"
 duplicate_html="$(curl --silent --show-error --cookie-jar "${duplicate_cookie_jar}" "${APP_ORIGIN}/")"
 duplicate_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${duplicate_html}" | head -n 1)"
 [[ "${duplicate_csrf}" =~ ^[0-9a-f]{64}$ ]]
+duplicate_headers="${tmp_dir}/duplicate-post-headers.txt"
 duplicate_code="$(request_code \
     --cookie "${duplicate_cookie_jar}" \
+    --cookie-jar "${duplicate_cookie_jar}" \
+    --dump-header "${duplicate_headers}" \
     --header "Origin: ${APP_ORIGIN}" \
     --data-urlencode "csrf=${duplicate_csrf}" \
     --data-urlencode 'action=post' \
@@ -409,8 +452,16 @@ duplicate_code="$(request_code \
     --data-urlencode 'message=Hello from the isolated smoke test' \
     "${APP_ORIGIN}/")"
 [[ "${duplicate_code}" == 303 ]]
-queued_html="$(curl --silent --show-error --cookie "${duplicate_cookie_jar}" "${APP_ORIGIN}/")"
+duplicate_message_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT id FROM messages WHERE status = 'pending' ORDER BY id DESC LIMIT 1;")"
+duplicate_manage_path="/messages/${duplicate_message_id}/manage"
+grep --ignore-case --quiet "^Location: ${duplicate_manage_path}" "${duplicate_headers}"
+queued_html="$(curl --silent --show-error --cookie "${duplicate_cookie_jar}" "${APP_ORIGIN}${duplicate_manage_path}")"
 grep --quiet 'Message received and queued for moderator review.' <<<"${queued_html}"
+grep --quiet 'Awaiting moderator review' <<<"${queued_html}"
+if grep --quiet 'Hello from the isolated smoke test\|analytics.js' <<<"${queued_html}"; then
+    echo 'Pending-message management page exposed content or analytics.' >&2
+    exit 1
+fi
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
     "SELECT COUNT(*) FROM messages
      WHERE status = 'pending' AND moderation_reason = 'risk' AND risk_score >= 50
@@ -650,5 +701,63 @@ restore_code="$(request_code \
      FROM messages WHERE id = ${message_id};")" == published:1 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status || ':' || moderation_reason FROM messages WHERE id = ${message_id};")" == published:restored ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM admin_audit_events;")" == 6 ]]
+
+manage_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-jar "${cookie_jar}" \
+    "${APP_ORIGIN}${manage_path}")"
+owner_csrf="$(sed -n 's/.*name="owner_csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${manage_html}" | head -n 1)"
+manage_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${manage_html}" | head -n 1)"
+[[ "${owner_csrf}" =~ ^[0-9a-f]{64}$ ]]
+[[ "${manage_csrf}" =~ ^[0-9a-f]{64}$ ]]
+withdraw_headers="${tmp_dir}/withdraw-headers.txt"
+withdraw_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --cookie-jar "${cookie_jar}" \
+    --dump-header "${withdraw_headers}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${manage_csrf}" \
+    --data-urlencode "owner_csrf=${owner_csrf}" \
+    --data-urlencode 'action=owner_remove' \
+    "${APP_ORIGIN}${manage_path}")"
+[[ "${withdraw_code}" == 303 ]]
+grep --ignore-case --quiet '^Location: /' "${withdraw_headers}"
+grep --ignore-case --quiet "^Set-Cookie: gbowner_${message_id}=deleted;.*Max-Age=0;.*HttpOnly.*SameSite=Strict" "${withdraw_headers}"
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT status || ':' || moderation_reason || ':' || (owner_withdrawn_at IS NOT NULL) || ':' ||
+            (owner_token_hash IS NULL) || ':' || (ip_hash IS NULL) || ':' ||
+            (content_fingerprint IS NULL) || ':' || (featured_at IS NULL)
+     FROM messages WHERE id = ${message_id};")" == deleted:requested:1:1:1:1:1 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT COUNT(*) FROM security_events
+     WHERE event_type = 'message.owner_remove' AND outcome = 'success'
+       AND related_id = ${message_id} AND subject_hash IS NULL;")" == 1 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT COUNT(*) FROM admin_audit_events
+     WHERE event_type = 'message.delete' AND related_id = ${message_id}
+       AND previous_state = 'published' AND new_state = 'deleted'
+       AND reason_code = 'requested';")" == 1 ]]
+[[ "$(request_code "${APP_ORIGIN}/messages/${message_id}")" == 404 ]]
+[[ "$(request_code --cookie "${cookie_jar}" "${APP_ORIGIN}${manage_path}")" == 404 ]]
+if curl --silent --show-error "${APP_ORIGIN}/sitemap.xml" | grep --fixed-strings --quiet "/messages/${message_id}" \
+    || curl --silent --show-error "${APP_ORIGIN}/feed.xml" | grep --fixed-strings --quiet 'Hello from the isolated smoke test' \
+    || curl --silent --show-error "${APP_ORIGIN}/feed.json" | grep --fixed-strings --quiet 'Hello from the isolated smoke test' \
+    || curl --silent --show-error "${APP_ORIGIN}/api/v1/messages" | grep --fixed-strings --quiet 'Hello from the isolated smoke test'; then
+    echo 'Owner-withdrawn content remained on a public discovery surface.' >&2
+    exit 1
+fi
+
+admin_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
+grep --fixed-strings --quiet 'Withdrawn by its author · cannot be republished.' <<<"${admin_html}"
+admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
+restore_withdrawn_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${admin_csrf}" \
+    --data-urlencode 'action=moderate' \
+    --data-urlencode "id=${message_id}" \
+    --data-urlencode 'status=published' \
+    --data-urlencode 'reason=restored' \
+    "${APP_ORIGIN}/")"
+[[ "${restore_withdrawn_code}" == 303 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status FROM messages WHERE id = ${message_id};")" == deleted ]]
 
 echo 'HTTP smoke tests passed.'

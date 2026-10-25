@@ -940,6 +940,38 @@ body {
 .site-footer a[aria-current="page"] { color: var(--text); text-decoration-thickness: 2px; }
 .site-footer p { margin: 10px 0 0; }
 
+/* ---- Private message management ---- */
+.manage-page { max-width: 760px; }
+.manage-card {
+    margin-top: 22px;
+    padding: clamp(22px, 6vw, 38px);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface-2);
+}
+.manage-card h1 { margin: 3px 0 10px; font-size: clamp(1.65rem, 7vw, 2.35rem); line-height: 1.15; }
+.manage-card h2 { margin: 0 0 7px; font-size: 1.08rem; }
+.manage-lead, .manage-notice { color: var(--text-muted); }
+.manage-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    margin: 24px 0;
+}
+.manage-meta div { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+.manage-meta dt { color: var(--text-faint); font-size: .73rem; font-weight: 750; text-transform: uppercase; letter-spacing: .05em; }
+.manage-meta dd { margin: 7px 0 0; }
+.manage-danger {
+    margin-top: 28px;
+    padding: 18px;
+    border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--danger) 6%, var(--surface));
+}
+.manage-danger p { color: var(--text-muted); }
+.btn.danger { background: #991b1b; color: #fff; }
+.owner-withdrawn-note { color: var(--text-muted); font-weight: 650; }
+
 /* ---- Avatar palette (deterministic, CSP-safe: no inline styles) ---- */
 .av-0  { background: linear-gradient(135deg, #6366f1, #4338ca); }
 .av-1  { background: linear-gradient(135deg, #ec4899, #be185d); }
@@ -977,6 +1009,9 @@ body {
     .public-page .brand { font-size: 1.15rem; gap: 9px; }
     .public-page .brand .logo { width: 40px; height: 40px; }
     .policy-hero { margin-top: 12px; }
+    .manage-card { margin-top: 14px; }
+    .manage-meta { grid-template-columns: 1fr; }
+    .manage-danger .btn { width: 100%; }
 }
 
 @media (max-width: 600px) {

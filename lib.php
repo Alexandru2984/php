@@ -64,6 +64,15 @@ function public_message_path(int $id, bool $fragment = false): string
     return $fragment ? $path . '#m' . $id : $path;
 }
 
+/** Return the private management path for one newly submitted message. */
+function message_manage_path(int $id): string
+{
+    if ($id < 1) {
+        throw new InvalidArgumentException('Invalid message identifier');
+    }
+    return '/messages/' . $id . '/manage';
+}
+
 /** Return the canonical path for one UTC calendar month of public messages. */
 function public_archive_path(int $year, int $month, int $page = 1): string
 {
@@ -451,6 +460,95 @@ function admin_actor_hash(): string
     return hash_hmac('sha256', "admin-actor\0local-admin", APP_SECRET);
 }
 
+/** Stable logical actor for author withdrawals; never identifies a visitor. */
+function message_owner_actor_hash(): string
+{
+    return hash_hmac('sha256', "message-owner-actor\0self-service", APP_SECRET);
+}
+
+/** Create an unguessable URL-safe capability used only in an HttpOnly cookie. */
+function message_owner_token_create(): string
+{
+    return rtrim(strtr(base64_encode(random_bytes(32)), '+/', '-_'), '=');
+}
+
+/** Accept only canonical 256-bit base64url ownership capabilities. */
+function message_owner_token_valid(string $token): bool
+{
+    return preg_match('/\A[A-Za-z0-9_-]{43}\z/D', $token) === 1;
+}
+
+/** Store only a purpose-separated keyed digest of the ownership capability. */
+function message_owner_token_hash(string $token): string
+{
+    if (!message_owner_token_valid($token)) {
+        throw new InvalidArgumentException('Invalid message ownership capability');
+    }
+    return hash_hmac('sha256', "message-owner-token\0" . $token, APP_SECRET);
+}
+
+/** Bind the destructive action to both the browser session and capability. */
+function message_owner_csrf_token(int $messageId, string $ownerToken): string
+{
+    if ($messageId < 1 || !message_owner_token_valid($ownerToken)) {
+        throw new InvalidArgumentException('Invalid message ownership request');
+    }
+    return hash_hmac(
+        'sha256',
+        "message-owner-csrf\0" . $messageId . "\0" . csrf_token(),
+        $ownerToken
+    );
+}
+
+/** Verify the capability-bound token without type coercion. */
+function message_owner_csrf_valid(int $messageId, string $ownerToken): bool
+{
+    $provided = string_input($_POST, 'owner_csrf');
+    return $provided !== null
+        && strlen($provided) === 64
+        && hash_equals(message_owner_csrf_token($messageId, $ownerToken), $provided);
+}
+
+/** Read the path-scoped ownership cookie without accepting malformed values. */
+function message_owner_cookie_token(int $messageId): ?string
+{
+    if ($messageId < 1) {
+        return null;
+    }
+    $token = $_COOKIE['gbowner_' . $messageId] ?? null;
+    return is_string($token) && message_owner_token_valid($token) ? $token : null;
+}
+
+/** Set the raw capability only as a path-scoped, HttpOnly, strict cookie. */
+function message_owner_cookie_set(int $messageId, string $ownerToken): bool
+{
+    if ($messageId < 1 || !message_owner_token_valid($ownerToken)) {
+        throw new InvalidArgumentException('Invalid message ownership cookie');
+    }
+    return setcookie('gbowner_' . $messageId, $ownerToken, [
+        'expires' => time() + MESSAGE_OWNER_COOKIE_SECONDS,
+        'path' => message_manage_path($messageId),
+        'secure' => str_starts_with(APP_ORIGIN, 'https://'),
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
+}
+
+/** Expire the capability at the same path and with the same security flags. */
+function message_owner_cookie_expire(int $messageId): bool
+{
+    if ($messageId < 1) {
+        throw new InvalidArgumentException('Invalid message ownership cookie');
+    }
+    return setcookie('gbowner_' . $messageId, '', [
+        'expires' => 1,
+        'path' => message_manage_path($messageId),
+        'secure' => str_starts_with(APP_ORIGIN, 'https://'),
+        'httponly' => true,
+        'samesite' => 'Strict',
+    ]);
+}
+
 /** Seconds remaining on a persistent limiter, or zero when the subject may try. */
 function rate_limit_retry_after(
     PDO $pdo,
@@ -735,7 +833,7 @@ function assess_submission_risk(
  * Persist a validated submission and apply only a reversible pending/public choice.
  * Duplicate assessment and insertion are serialized to avoid a race between posts.
  *
- * @return array{id:int, status:string, score:int, flags:list<string>}
+ * @return array{id:int, status:string, score:int, flags:list<string>, owner_token:string}
  */
 function create_submission(
     PDO $pdo,
@@ -751,6 +849,8 @@ function create_submission(
         throw new InvalidArgumentException('Invalid validated submission');
     }
     $now ??= time();
+    $ownerToken = message_owner_token_create();
+    $ownerTokenHash = message_owner_token_hash($ownerToken);
 
     $pdo->exec('BEGIN IMMEDIATE');
     try {
@@ -767,10 +867,10 @@ function create_submission(
         $stmt = $pdo->prepare(
             "INSERT INTO messages
                 (author, content, ip_hash, created_at, status, moderation_reason,
-                 content_fingerprint, risk_score, risk_flags)
+                 content_fingerprint, risk_score, risk_flags, owner_token_hash)
              VALUES
                 (:author, :content, :ip_hash, datetime(:created, 'unixepoch'), :status,
-                 :reason, :fingerprint, :score, :flags)"
+                 :reason, :fingerprint, :score, :flags, :owner_token_hash)"
         );
         $stmt->execute([
             ':author' => $author,
@@ -782,6 +882,7 @@ function create_submission(
             ':fingerprint' => $risk['fingerprint'],
             ':score' => $risk['score'],
             ':flags' => json_encode($risk['flags'], JSON_THROW_ON_ERROR),
+            ':owner_token_hash' => $ownerTokenHash,
         ]);
         $messageId = (int) $pdo->lastInsertId();
         if ($queued) {
@@ -793,7 +894,129 @@ function create_submission(
             'status' => $status,
             'score' => $risk['score'],
             'flags' => $risk['flags'],
+            'owner_token' => $ownerToken,
         ];
+    } catch (Throwable $e) {
+        try {
+            $pdo->exec('ROLLBACK');
+        } catch (Throwable) {
+            // Preserve the original exception.
+        }
+        throw $e;
+    }
+}
+
+/** Return minimal private metadata only when the supplied capability owns it. */
+function owned_message(PDO $pdo, int $messageId, string $ownerToken): ?array
+{
+    if ($messageId < 1 || !message_owner_token_valid($ownerToken)) {
+        return null;
+    }
+    $stmt = $pdo->prepare(
+        'SELECT id, status, created_at, owner_token_hash, owner_withdrawn_at
+         FROM messages WHERE id = :id'
+    );
+    $stmt->execute([':id' => $messageId]);
+    $message = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($message === false
+        || !is_string($message['owner_token_hash'])
+        || !hash_equals($message['owner_token_hash'], message_owner_token_hash($ownerToken))) {
+        return null;
+    }
+    unset($message['owner_token_hash']);
+    return $message;
+}
+
+/**
+ * Irreversibly withdraw an owned message from every application-controlled
+ * public surface while retaining its text for the documented audit lifecycle.
+ */
+function withdraw_owned_message(
+    PDO $pdo,
+    int $messageId,
+    string $ownerToken,
+    ?int $now = null
+): bool {
+    if ($messageId < 1 || !message_owner_token_valid($ownerToken)) {
+        return false;
+    }
+    $now ??= time();
+
+    $pdo->exec('BEGIN IMMEDIATE');
+    try {
+        $lookup = $pdo->prepare(
+            'SELECT status, featured_at, owner_token_hash, owner_withdrawn_at
+             FROM messages WHERE id = :id'
+        );
+        $lookup->execute([':id' => $messageId]);
+        $message = $lookup->fetch(PDO::FETCH_ASSOC);
+        if ($message === false
+            || $message['owner_withdrawn_at'] !== null
+            || !is_string($message['owner_token_hash'])
+            || !hash_equals($message['owner_token_hash'], message_owner_token_hash($ownerToken))) {
+            $pdo->exec('COMMIT');
+            return false;
+        }
+        $previousState = $message['status'];
+        if (!is_string($previousState) || !in_array($previousState, moderation_states(), true)) {
+            throw new RuntimeException('Message has an invalid moderation state');
+        }
+        $wasFeatured = is_string($message['featured_at']) && $message['featured_at'] !== '';
+
+        $update = $pdo->prepare(
+            "UPDATE messages
+             SET status = 'deleted',
+                 deleted_at = datetime(:now, 'unixepoch'),
+                 moderation_reason = 'requested',
+                 moderated_at = datetime(:now, 'unixepoch'),
+                 owner_withdrawn_at = datetime(:now, 'unixepoch'),
+                 owner_token_hash = NULL,
+                 ip_hash = NULL,
+                 content_fingerprint = NULL,
+                 featured_at = NULL,
+                 feature_changed_at = CASE
+                     WHEN featured_at IS NOT NULL THEN datetime(:now, 'unixepoch')
+                     ELSE feature_changed_at
+                 END
+             WHERE id = :id AND owner_token_hash = :owner_token_hash
+               AND owner_withdrawn_at IS NULL"
+        );
+        $update->execute([
+            ':now' => $now,
+            ':id' => $messageId,
+            ':owner_token_hash' => $message['owner_token_hash'],
+        ]);
+        if ($update->rowCount() !== 1) {
+            throw new RuntimeException('Concurrent message withdrawal');
+        }
+
+        $actorHash = message_owner_actor_hash();
+        if ($wasFeatured) {
+            admin_audit_event(
+                $pdo,
+                'message.unfeature',
+                'success',
+                $actorHash,
+                $messageId,
+                null,
+                null,
+                null,
+                $now
+            );
+        }
+        admin_audit_event(
+            $pdo,
+            'message.delete',
+            'success',
+            $actorHash,
+            $messageId,
+            $previousState,
+            'deleted',
+            'requested',
+            $now
+        );
+        $pdo->exec('COMMIT');
+        return true;
     } catch (Throwable $e) {
         try {
             $pdo->exec('ROLLBACK');
@@ -905,10 +1128,14 @@ function moderate_message(
 
     $pdo->exec('BEGIN IMMEDIATE');
     try {
-        $lookup = $pdo->prepare('SELECT status, featured_at FROM messages WHERE id = :id');
+        $lookup = $pdo->prepare(
+            'SELECT status, featured_at, owner_withdrawn_at FROM messages WHERE id = :id'
+        );
         $lookup->execute([':id' => $messageId]);
         $message = $lookup->fetch(PDO::FETCH_ASSOC);
-        if ($message === false || $message['status'] === $newState) {
+        if ($message === false
+            || $message['status'] === $newState
+            || ($newState === 'published' && $message['owner_withdrawn_at'] !== null)) {
             $pdo->exec('COMMIT');
             return false;
         }
@@ -1191,11 +1418,20 @@ function prune_security_records(PDO $pdo, ?int $now = null): array
            AND created_at < datetime(:cutoff, 'unixepoch')"
     );
     $identifiers->execute([':cutoff' => $now - 86400]);
+    // Browser capabilities expire after one year. A one-day safety margin avoids
+    // invalidating a cookie whose response was issued seconds after the DB row.
+    $ownerCapabilities = $pdo->prepare(
+        "UPDATE messages SET owner_token_hash = NULL
+         WHERE owner_token_hash IS NOT NULL
+           AND created_at < datetime(:cutoff, 'unixepoch')"
+    );
+    $ownerCapabilities->execute([':cutoff' => $now - 366 * 86400]);
     return [
         'rate_limits' => $limits->rowCount(),
         'security_events' => $events->rowCount(),
         'abuse_reports' => $reports->rowCount(),
         'message_identifiers' => $identifiers->rowCount(),
+        'owner_capabilities' => $ownerCapabilities->rowCount(),
     ];
 }
 
