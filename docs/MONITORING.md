@@ -124,7 +124,9 @@ Telegram receives only operational metadata, Cloudflare processes edge traffic a
 R2 ciphertext, Google Drive stores a second ciphertext copy, and Umami remains
 self-hosted on the VPS. Confirm all processor records, regions/transfer bases and
 retention outside this repository. The current provider credential scope and single
-recovery recipient remain explicit follow-up risks.
+recovery recipient remain explicit follow-up risks. The Google Drive remote must move
+from rclone's retiring shared OAuth client to a dedicated least-privilege client;
+successful copy/verification does not close that credential-lifecycle risk.
 
 ## CI controls
 

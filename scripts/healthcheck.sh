@@ -33,6 +33,9 @@ owner_remove_threshold="${GUESTBOOK_OWNER_REMOVE_FAILURE_THRESHOLD:-10}"
 open_report_threshold="${GUESTBOOK_OPEN_REPORT_THRESHOLD:-10}"
 pending_message_threshold="${GUESTBOOK_PENDING_MESSAGE_THRESHOLD:-10}"
 allow_http="${GUESTBOOK_HEALTH_ALLOW_HTTP:-0}"
+# The production unit deliberately uses MemoryDenyWriteExecute. Disable PCRE JIT
+# for the small, untrusted-response parsers instead of producing a sandbox warning.
+php_cli=(php -d pcre.jit=0)
 
 fail() {
     printf 'guestbook-health: FAIL component=%s reason=%s\n' "$1" "$2" >&2
@@ -126,7 +129,7 @@ html="$(curl "${curl_args[@]}" "${base_url}/")" || fail web request-failed
     || fail seo social-card-type-invalid
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
-if ! curl "${curl_args[@]}" "${base_url}/assets/social-card.png" | php -r '
+if ! curl "${curl_args[@]}" "${base_url}/assets/social-card.png" | "${php_cli[@]}" -r '
     $value = stream_get_contents(STDIN);
     $image = getimagesizefromstring($value);
     $valid = is_array($image)
@@ -171,7 +174,7 @@ api_url="${base_url}/api/v1/messages?limit=1"
 api_document="$(curl "${curl_args[@]}" "${api_url}")" || fail api request-failed
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
-if ! php -r '
+if ! "${php_cli[@]}" -r '
     $value = json_decode(stream_get_contents(STDIN), true, 8, JSON_THROW_ON_ERROR);
     $pagination = $value["pagination"] ?? null;
     $valid = is_array($value)
@@ -207,7 +210,7 @@ unset api_headers api_headers_lower
 
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
-if ! curl "${curl_args[@]}" "${base_url}/feed.xml" | php -r '
+if ! curl "${curl_args[@]}" "${base_url}/feed.xml" | "${php_cli[@]}" -r '
     $value = stream_get_contents(STDIN);
     exit(str_starts_with(ltrim($value), "<?xml")
         && str_contains($value, "<rss version=\"2.0\">") ? 0 : 1);
@@ -217,7 +220,7 @@ fi
 
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
-if ! curl "${curl_args[@]}" "${base_url}/feed.json" | php -r '
+if ! curl "${curl_args[@]}" "${base_url}/feed.json" | "${php_cli[@]}" -r '
     $value = json_decode(stream_get_contents(STDIN), true, 16, JSON_THROW_ON_ERROR);
     $valid = is_array($value)
         && ($value["version"] ?? null) === "https://jsonfeed.org/version/1.1"
@@ -241,7 +244,7 @@ fi
 
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
-if ! curl "${curl_args[@]}" "${base_url}/sitemap.xml" | php -r '
+if ! curl "${curl_args[@]}" "${base_url}/sitemap.xml" | "${php_cli[@]}" -r '
     $value = simplexml_load_string(stream_get_contents(STDIN));
     if ($value === false || $value->getName() !== "urlset") { exit(1); }
     $locations = [];
@@ -285,7 +288,7 @@ unset robots
 
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
-archive_path="$(curl "${curl_args[@]}" "${base_url}/sitemap.xml" | php -r '
+archive_path="$(curl "${curl_args[@]}" "${base_url}/sitemap.xml" | "${php_cli[@]}" -r '
     $value = simplexml_load_string(stream_get_contents(STDIN));
     if ($value === false) { exit(1); }
     $prefix = $argv[1] . "/archive/";
@@ -314,7 +317,7 @@ unset archive_path
 
 # The PHP snippet is intentionally single-quoted shell input.
 # shellcheck disable=SC2016
-first_message_id="$(php -r '
+first_message_id="$("${php_cli[@]}" -r '
     $value = json_decode(stream_get_contents(STDIN), true, 8, JSON_THROW_ON_ERROR);
     $id = $value["data"][0]["id"] ?? null;
     if ($id !== null && (!is_int($id) || $id < 1)) { exit(1); }

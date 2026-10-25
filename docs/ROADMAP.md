@@ -194,6 +194,8 @@ for users/moderators to reverse mistakes.
 - Version the hardened backup script/systemd units; keep daily local snapshots,
   weekly automated restore verification, an encrypted off-host copy and quarterly
   human recovery drill.
+- Replace rclone's retiring shared Google Drive OAuth client with a dedicated,
+  least-privilege client and verify alert recovery after credential rotation.
 - Add GitHub CI: PHP syntax/tests, ShellCheck, HTML/CSS/JS checks, secret scanning,
   SAST, dependency review when dependencies appear, browser/a11y smoke tests.
 - Add branch protection, signed/tagged releases, change log, deploy approval and
