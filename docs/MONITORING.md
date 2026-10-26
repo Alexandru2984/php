@@ -27,7 +27,7 @@ The guestbook probe checks:
   Cloudflare route;
 - the self-hosted analytics script and all privacy attributes in rendered HTML;
 - SQLite `quick_check`, the minimum migration count, recent admin-login and invalid
-  owner-withdrawal failures, ownership/featured invariants and privacy-minimal counts
+  owner-capability failures (export or withdrawal), ownership/featured invariants and privacy-minimal counts
   of open abuse reports and pending messages;
 - compressed backup integrity and maximum backup age of 30 hours;
 - a two-provider off-host verification marker no older than 30 hours;
@@ -59,7 +59,7 @@ use journald and the append-only admin audit during incident response.
 | Public HTML/API/feed or analytics unavailable | One failed probe | 5 minutes + timer jitter |
 | SQLite integrity/schema failure | One failed probe | 5 minutes + timer jitter |
 | Admin authentication abuse | 5 failed/blocked attempts in 15 minutes | Next five-minute probe |
-| Invalid owner withdrawal attempts | 10 failed/blocked attempts in 15 minutes | Next five-minute probe |
+| Invalid owner capability actions | 10 failed/blocked export/withdrawal attempts in 15 minutes | Next five-minute probe |
 | Unreviewed abuse-report backlog | 10 open reports | Next five-minute probe |
 | Automated-review backlog | 10 pending messages | Next five-minute probe |
 | Backup missing, invalid or old | Older than 30 hours | Next five-minute probe |

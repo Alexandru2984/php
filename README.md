@@ -27,6 +27,8 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
   requests and a published OpenAPI 3.1 contract.
 - Light/dark theme with a persisted toggle.
 - Privacy-minimal abuse reporting with a rate-limited admin review queue.
+- Private, cookie-bound message management with a minimal JSON copy and irreversible
+  first-party withdrawal for the posting browser.
 - Explainable anti-abuse scoring that queues risky submissions for reversible human
   review without exposing them in public HTML, search, feeds or API responses.
 - Five-state moderation, reversible individual actions, atomic suppression/re-queue

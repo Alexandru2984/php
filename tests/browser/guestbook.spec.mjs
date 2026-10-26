@@ -1,16 +1,18 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 const viewports = [320, 375, 768, 1024, 1440];
 const wcagTags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'];
 
-function observeRuntimeFailures(page) {
+function observeRuntimeFailures(page, ignoreRequestFailure = () => false) {
   const failures = [];
   page.on('console', (message) => {
     if (message.type() === 'error') failures.push(`console: ${message.text()}`);
   });
   page.on('pageerror', (error) => failures.push(`page: ${error.message}`));
   page.on('requestfailed', (request) => {
+    if (ignoreRequestFailure(request)) return;
     failures.push(`request: ${request.method()} ${request.url()} (${request.failure()?.errorText ?? 'failed'})`);
   });
   return failures;
@@ -439,7 +441,12 @@ test('risk-queued duplicate is private, explained to admin and reversibly publis
 });
 
 test('author can privately withdraw a message and it stays unavailable', async ({ page }) => {
-  const runtimeFailures = observeRuntimeFailures(page);
+  let expectedDownloadPath = '';
+  const runtimeFailures = observeRuntimeFailures(page, (request) => (
+    request.method() === 'POST'
+      && new URL(request.url()).pathname === expectedDownloadPath
+      && request.failure()?.errorText === 'net::ERR_ABORTED'
+  ));
   await page.setViewportSize({ width: 320, height: 812 });
   await page.goto('/');
 
@@ -452,6 +459,25 @@ test('author can privately withdraw a message and it stays unavailable', async (
 
   await expect(page.getByRole('heading', { level: 1, name: /Manage message #\d+/ })).toBeVisible();
   await expect(page.getByText('Owner withdrawal browser fixture', { exact: true })).toHaveCount(0);
+  expectedDownloadPath = managePath;
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Download my message' }).click(),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/^micutu-guestbook-message-\d+\.json$/);
+  const downloadFilePath = await download.path();
+  expect(downloadFilePath).not.toBeNull();
+  const ownerExport = JSON.parse(await readFile(downloadFilePath, 'utf8'));
+  expect(ownerExport.export_version).toBe('1.0');
+  expect(ownerExport.message.author).toBe('Owner browser check');
+  expect(ownerExport.message.content).toBe('Owner withdrawal browser fixture');
+  expect(ownerExport.message.status).toBe('published');
+  expect(Object.keys(ownerExport.message)).toEqual([
+    'id', 'author', 'content', 'submitted_at', 'status',
+  ]);
+  expect(JSON.stringify(ownerExport)).not.toMatch(
+    /ip_hash|content_fingerprint|risk_score|risk_flags|owner_token|moderation_reason/
+  );
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
   const results = await new AxeBuilder({ page }).withTags(wcagTags).analyze();
   expect(violationSummary(results), 'owner withdrawal WCAG violations').toEqual([]);

@@ -5,7 +5,7 @@ stage must be an atomic commit (or small reviewed commit series), include tests 
 have a rollback path. Production changes happen only after the stage passes its exit
 criteria.
 
-## Status after the 2026-10-26 moderation-operations release
+## Status after the 2026-10-27 owner-controls release
 
 - **Deployed:** Stages 0–2 core controls: isolated build/test, recoverable backup,
   fail-closed configuration, persistent auth throttling, versioned migrations,
@@ -37,16 +37,18 @@ criteria.
 - **Trust and discovery pages delivered:** standalone sessionless About, Privacy and
   Moderation pages now publish the real public surface, retention periods, reporting
   model and known workflow gaps. A dedicated private operator contact and complete
-  export/erasure/objection workflow remain outstanding.
-- **Self-service withdrawal foundation delivered:** every new submission receives a
+  statutory access/erasure/objection workflow remain outstanding.
+- **Self-service owner-control foundation delivered:** every new submission receives a
   private HttpOnly capability scoped to a noindex/no-store management path. Its browser
-  can hide that message from every first-party public surface; capability destruction,
-  append-only audit and database triggers make the decision non-republishable. This is
-  deliberately documented as soft withdrawal, not a complete Article 17 purge.
+  can download a whitelisted JSON copy of that message or hide it from every first-party
+  public surface; both actions are append-only audited, while capability destruction
+  and database triggers make withdrawal non-republishable. These controls are
+  deliberately documented as a one-message copy and soft withdrawal, not complete
+  statutory access/portability or an Article 17 purge.
 - **Next priority:** replace rclone's retiring shared Google OAuth client with a
   dedicated least-privilege client, add a second offline recovery recipient plus a human off-host drill,
   an incident-response tabletop, manual screen-reader/200% zoom checks,
-  retention/export/erasure operations, dedicated post/API/search edge limits,
+  retention and statutory access/erasure/objection operations, dedicated post/API/search edge limits,
   expiring allow/block controls and optional risk-triggered Turnstile.
 - **Still deferred:** Stage 7 community features and the explicitly deferred features
   at the end of this document. They must not outrun the remaining privacy, abuse and
@@ -113,7 +115,9 @@ clean.
   filters, sorting, bounded pagination, aggregate operational stats and privacy-minimal
   suspicious-activity view are delivered; publication intentionally remains individual.
 - Add privacy/about/report-abuse pages, an operator contact, consent-aware analytics,
-  retention policy and data export/erasure workflow.
+  retention policy and a complete authenticated data-subject access/erasure workflow.
+  A capability-bound copy of one newly submitted message is delivered, but does not
+  satisfy the complete workflow.
 - Erase `ip_hash` after the rate-limit/abuse window and rotate purpose-specific keys
   without exposing raw addresses.
 

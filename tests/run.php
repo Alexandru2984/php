@@ -952,6 +952,37 @@ check(
         && !array_key_exists('content', $ownedMetadata),
     'valid capability returns only minimal private management metadata'
 );
+$ownerAuditBeforeExport = (int) $db->query(
+    "SELECT COUNT(*) FROM admin_audit_events WHERE event_type = 'message.owner_export'"
+)->fetchColumn();
+check(
+    export_owned_message($db, $ownedId, $wrongOwnerToken, 696) === null
+        && (int) $db->query(
+            "SELECT COUNT(*) FROM admin_audit_events
+             WHERE event_type = 'message.owner_export'"
+        )->fetchColumn() === $ownerAuditBeforeExport,
+    'wrong ownership capability cannot export content or create a success audit'
+);
+$ownedExport = export_owned_message($db, $ownedId, $ownedToken, 697);
+check(
+    $ownedExport === [
+        'id' => $ownedId,
+        'author' => 'Owner fixture',
+        'content' => 'A separately owned message',
+        'created_at' => gmdate('Y-m-d H:i:s', $riskNow + 100),
+        'status' => 'published',
+    ],
+    'valid capability exports only the submitted message and public state'
+);
+check(
+    (int) $db->query(
+        "SELECT COUNT(*) FROM admin_audit_events
+         WHERE event_type = 'message.owner_export' AND outcome = 'success'
+           AND related_id = {$ownedId} AND previous_state IS NULL
+           AND new_state IS NULL AND reason_code IS NULL"
+    )->fetchColumn() === 1,
+    'owner export appends a content-free accountability event'
+);
 check(
     set_message_featured($db, $ownedId, true, $subject, 698)
         && withdraw_owned_message($db, $ownedId, $ownedToken, 700),
@@ -986,8 +1017,9 @@ check(
 );
 check(
     !moderate_message($db, $ownedId, 'published', 'restored', $subject, 701)
-        && !withdraw_owned_message($db, $ownedId, $ownedToken, 702),
-    'withdrawn message cannot be restored or replayed through application helpers'
+        && !withdraw_owned_message($db, $ownedId, $ownedToken, 702)
+        && export_owned_message($db, $ownedId, $ownedToken, 702) === null,
+    'withdrawn message cannot be restored, exported or replayed through application helpers'
 );
 check(
     bulk_moderate_messages(

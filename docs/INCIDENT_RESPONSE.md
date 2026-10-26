@@ -23,9 +23,12 @@
   the pool configuration, reload FPM and verify that rendered HTML has no tracker.
 - Abuse: keep the persistent rate limit in place, preserve security-event rows and
   apply temporary edge controls only after checking shared-NAT impact.
-- Owner-capability abuse: preserve the bounded `message.owner_remove` security events
-  and matching append-only audit rows. Roll back the application symlink to disable
-  the management route while the database trigger continues blocking republication.
+- Owner-capability abuse: preserve the bounded `message.owner_export` and
+  `message.owner_remove` security events and matching append-only audit rows. Roll
+  back the application symlink to disable the management route while the database
+  trigger continues blocking republication. Treat an unexpected successful export as
+  possible disclosure of that message's submitted name, text, time and current state;
+  a file already saved to a compromised device cannot be remotely recalled.
   If multiple capabilities may be exposed, first take a verified snapshot, then
   invalidate outstanding controls with an authorised transaction that sets
   `owner_token_hash = NULL`; never log or export cookie values. Do not rotate
@@ -46,11 +49,12 @@ one-shot backup. A successful watched service emits a single resolved notificati
 when a matching incident marker exists.
 
 An owner withdrawal is not restored through ordinary moderation. A stolen capability
-can hide one future message, and a valid use is intentionally indistinguishable from
-the author's use at request time. Recovery of an allegedly wrongful withdrawal needs
-separate identity/legal review and must not silently republish from a backup. Record
-the decision, affected message number and external-cache/search removal steps without
-copying message text into the alert channel.
+can export or hide one future message, and a valid use is intentionally
+indistinguishable from the author's use at request time. Recovery of an allegedly
+wrongful withdrawal needs separate identity/legal review and must not silently
+republish from a backup. Record the decision, affected message number, export risk and
+external-cache/search removal steps without copying message text into the alert
+channel.
 
 ## Notification decision
 

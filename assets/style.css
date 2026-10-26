@@ -1194,6 +1194,15 @@ body {
 .manage-meta div { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
 .manage-meta dt { color: var(--text-faint); font-size: .73rem; font-weight: 750; text-transform: uppercase; letter-spacing: .05em; }
 .manage-meta dd { margin: 7px 0 0; }
+.manage-export {
+    margin-top: 28px;
+    padding: 18px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+}
+.manage-export p { color: var(--text-muted); }
+.manage-export-note { margin-bottom: 0; font-size: .78rem; }
 .manage-danger {
     margin-top: 28px;
     padding: 18px;
@@ -1250,6 +1259,7 @@ body {
     .policy-hero { margin-top: 12px; }
     .manage-card { margin-top: 14px; }
     .manage-meta { grid-template-columns: 1fr; }
+    .manage-export .btn { width: 100%; }
     .manage-danger .btn { width: 100%; }
 }
 

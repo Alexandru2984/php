@@ -138,7 +138,7 @@ $socialImageUrl = APP_ORIGIN . asset('assets/social-card.png');
             </section>
             <section>
                 <h2>Private control for new messages</h2>
-                <p>After a new submission, this browser receives a random ownership key in an HttpOnly, SameSite Strict cookie restricted to that message's private management path. The application database stores only a keyed digest. The key is not placed in the URL, page HTML, analytics or public feeds, and the private page does not display the message text.</p>
+                <p>After a new submission, this browser receives a random ownership key in an HttpOnly, SameSite Strict cookie restricted to that message's private management path. The application database stores only a keyed digest. The key is not placed in the URL, page HTML, analytics or public feeds. The private page does not render the message text; an explicit protected download can return one copy as a JSON attachment.</p>
                 <p>The cookie can remain for up to one year, may be cleared earlier by browser settings, and is deleted after use. There is no account or recovery copy: if the cookie is lost, use Report on a published message. Cloudflare terminates the site's HTTPS connection and is therefore still inside the existing edge-processing boundary for requests carrying the cookie.</p>
             </section>
             <section>
@@ -153,8 +153,9 @@ $socialImageUrl = APP_ORIGIN . asset('assets/social-card.png');
             </section>
             <section>
                 <h2>Removal and access requests</h2>
+                <p>A browser that still holds the ownership cookie can download a copy of that one message containing only its number, submitted name and text, submission time and current state. The file excludes network identifiers, review signals, internal reasons and ownership keys. Saving it can leave personal data on that device or its backups.</p>
                 <p>A browser that still holds the ownership cookie can remove its message immediately from this site's public pages, search, archives, feeds, API and sitemap. The capability is then destroyed and the message cannot be republished through ordinary moderation. The text remains soft-deleted in the live database for the documented accountability lifecycle and can remain in backups or external copies.</p>
-                <p>This self-service withdrawal is not a complete legal erasure workflow. Use Report on a published message to request review without adding more personal details. A dedicated private channel and automated workflow for access, export, statutory erasure or objection requests are not yet published. This is a known operational gap, and this page must not be read as a complete statutory privacy notice.</p>
+                <p>The one-message copy is not a complete authenticated statutory access or portability response, and self-service withdrawal is not a complete legal erasure workflow. Use Report on a published message to request review without adding more personal details. A dedicated private channel and complete workflow for access, statutory erasure or objection requests are not yet published. This is a known operational gap, and this page must not be read as a complete statutory privacy notice.</p>
                 <p>For a security vulnerability, use <a href="/.well-known/security.txt">security.txt</a>; do not use that route for ordinary content reports.</p>
             </section>
             <?php else: ?>
@@ -171,7 +172,7 @@ $socialImageUrl = APP_ORIGIN . asset('assets/social-card.png');
                 <h2>Submission review</h2>
                 <p>New messages are checked with fixed, explainable signals such as recent duplication, link density, address-like names, repeated runs, very fast submission and invisible Unicode controls. A score at or above the review threshold queues the message as pending.</p>
                 <p>These signals never delete a message. A human moderator can publish, hide, mark as spam, mark as deleted or return a message to pending review using a controlled reason.</p>
-                <p>For new submissions, the posting browser also receives a private, cookie-bound management page. Its owner can withdraw that one message from all application-controlled public surfaces. An owner withdrawal is terminal: moderators can see the controlled reason and audit event but cannot republish the message.</p>
+                <p>For new submissions, the posting browser also receives a private, cookie-bound management page. Its owner can download a minimal copy of that one message or withdraw it from all application-controlled public surfaces. An owner withdrawal is terminal: moderators can see the controlled reason and audit event but cannot republish the message.</p>
             </section>
             <section>
                 <h2>Accountability and limits</h2>

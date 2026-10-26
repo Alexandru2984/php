@@ -280,6 +280,12 @@ if ($messageManagePathId !== null) {
         abort_response(400, 'Unsupported query parameter.');
     }
     $ownerToken = message_owner_cookie_token($messageManagePathId);
+    $requestedOwnerAction = $method === 'POST'
+        ? string_input($_POST, 'action')
+        : null;
+    $ownerSecurityEvent = $requestedOwnerAction === 'owner_export'
+        ? 'message.owner_export'
+        : 'message.owner_remove';
     $managedMessage = $ownerToken === null
         ? null
         : owned_message($pdo, $messageManagePathId, $ownerToken);
@@ -299,7 +305,7 @@ if ($messageManagePathId !== null) {
             }
             security_event(
                 $pdo,
-                'message.owner_remove',
+                $ownerSecurityEvent,
                 $retryAfter > 0 ? 'blocked' : 'failure',
                 $ownerSubject,
                 $messageManagePathId
@@ -319,16 +325,66 @@ if ($messageManagePathId !== null) {
             || !message_owner_csrf_valid($messageManagePathId, $ownerToken)) {
             security_event(
                 $pdo,
-                'message.owner_remove',
+                $ownerSecurityEvent,
                 'failure',
                 client_ip_hash('message-owner-remove'),
                 $messageManagePathId
             );
             abort_response(403, 'Unable to verify this request.');
         }
-        if (string_input($_POST, 'action') !== 'owner_remove') {
+        if (!in_array($requestedOwnerAction, ['owner_export', 'owner_remove'], true)) {
             abort_response(400, 'Invalid form data.');
         }
+
+        if ($requestedOwnerAction === 'owner_export') {
+            $exportedAt = time();
+            $exportedMessage = export_owned_message(
+                $pdo,
+                $messageManagePathId,
+                $ownerToken,
+                $exportedAt
+            );
+            if ($exportedMessage === null) {
+                security_event(
+                    $pdo,
+                    'message.owner_export',
+                    'failure',
+                    client_ip_hash('message-owner-remove'),
+                    $messageManagePathId
+                );
+                abort_response(404, 'Not found.');
+            }
+            security_event(
+                $pdo,
+                'message.owner_export',
+                'success',
+                null,
+                $messageManagePathId
+            );
+            $exportJson = json_encode([
+                'export_version' => '1.0',
+                'exported_at' => gmdate('c', $exportedAt),
+                'message' => [
+                    'id' => $exportedMessage['id'],
+                    'author' => $exportedMessage['author'],
+                    'content' => $exportedMessage['content'],
+                    'submitted_at' => utc_iso8601($exportedMessage['created_at']),
+                    'status' => $exportedMessage['status'],
+                ],
+            ], JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                . "\n";
+            header('Content-Type: application/json; charset=utf-8');
+            header(
+                'Content-Disposition: attachment; filename="micutu-guestbook-message-'
+                . $messageManagePathId . '.json"'
+            );
+            header('Content-Length: ' . strlen($exportJson));
+            header("Content-Security-Policy: default-src 'none'; sandbox");
+            header('X-Content-Type-Options: nosniff');
+            echo $exportJson;
+            exit;
+        }
+
         if (!withdraw_owned_message($pdo, $messageManagePathId, $ownerToken)) {
             security_event(
                 $pdo,

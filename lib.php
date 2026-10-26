@@ -497,7 +497,7 @@ function admin_actor_hash(): string
     return hash_hmac('sha256', "admin-actor\0local-admin", APP_SECRET);
 }
 
-/** Stable logical actor for author withdrawals; never identifies a visitor. */
+/** Stable logical actor for private owner actions; never identifies a visitor. */
 function message_owner_actor_hash(): string
 {
     return hash_hmac('sha256', "message-owner-actor\0self-service", APP_SECRET);
@@ -524,7 +524,7 @@ function message_owner_token_hash(string $token): string
     return hash_hmac('sha256', "message-owner-token\0" . $token, APP_SECRET);
 }
 
-/** Bind the destructive action to both the browser session and capability. */
+/** Bind a private owner action to both the browser session and capability. */
 function message_owner_csrf_token(int $messageId, string $ownerToken): string
 {
     if ($messageId < 1 || !message_owner_token_valid($ownerToken)) {
@@ -968,6 +968,81 @@ function owned_message(PDO $pdo, int $messageId, string $ownerToken): ?array
     }
     unset($message['owner_token_hash']);
     return $message;
+}
+
+/**
+ * Return one capability-owned submission export and append an accountability event.
+ * Internal abuse signals, identifiers and ownership material are never projected.
+ *
+ * @return array{id:int, author:string, content:string, created_at:string, status:string}|null
+ */
+function export_owned_message(
+    PDO $pdo,
+    int $messageId,
+    string $ownerToken,
+    ?int $now = null
+): ?array {
+    if ($messageId < 1 || !message_owner_token_valid($ownerToken)) {
+        return null;
+    }
+    $now ??= time();
+
+    $pdo->exec('BEGIN IMMEDIATE');
+    try {
+        $lookup = $pdo->prepare(
+            'SELECT id, author, content, created_at, status,
+                    owner_token_hash, owner_withdrawn_at
+             FROM messages WHERE id = :id'
+        );
+        $lookup->execute([':id' => $messageId]);
+        $message = $lookup->fetch(PDO::FETCH_ASSOC);
+        if ($message === false
+            || $message['owner_withdrawn_at'] !== null
+            || !is_string($message['owner_token_hash'])
+            || !hash_equals(
+                $message['owner_token_hash'],
+                message_owner_token_hash($ownerToken)
+            )) {
+            $pdo->exec('COMMIT');
+            return null;
+        }
+
+        $status = $message['status'];
+        if (!is_string($message['author'])
+            || !is_string($message['content'])
+            || !is_string($message['created_at'])
+            || !is_string($status)
+            || !in_array($status, moderation_states(), true)) {
+            throw new RuntimeException('Owned message has invalid export data');
+        }
+
+        admin_audit_event(
+            $pdo,
+            'message.owner_export',
+            'success',
+            message_owner_actor_hash(),
+            $messageId,
+            null,
+            null,
+            null,
+            $now
+        );
+        $pdo->exec('COMMIT');
+        return [
+            'id' => (int) $message['id'],
+            'author' => $message['author'],
+            'content' => $message['content'],
+            'created_at' => $message['created_at'],
+            'status' => $status,
+        ];
+    } catch (Throwable $e) {
+        try {
+            $pdo->exec('ROLLBACK');
+        } catch (Throwable) {
+            // Preserve the original exception.
+        }
+        throw $e;
+    }
 }
 
 /**

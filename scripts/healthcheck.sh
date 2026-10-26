@@ -28,8 +28,8 @@ max_disk_used="${GUESTBOOK_MAX_DISK_USED_PERCENT:-90}"
 expected_migrations="${GUESTBOOK_EXPECTED_MIGRATIONS:-8}"
 login_window="${GUESTBOOK_LOGIN_FAILURE_WINDOW_SECONDS:-900}"
 login_threshold="${GUESTBOOK_LOGIN_FAILURE_THRESHOLD:-5}"
-owner_remove_window="${GUESTBOOK_OWNER_REMOVE_FAILURE_WINDOW_SECONDS:-900}"
-owner_remove_threshold="${GUESTBOOK_OWNER_REMOVE_FAILURE_THRESHOLD:-10}"
+owner_capability_window="${GUESTBOOK_OWNER_REMOVE_FAILURE_WINDOW_SECONDS:-900}"
+owner_capability_threshold="${GUESTBOOK_OWNER_REMOVE_FAILURE_THRESHOLD:-10}"
 open_report_threshold="${GUESTBOOK_OPEN_REPORT_THRESHOLD:-10}"
 pending_message_threshold="${GUESTBOOK_PENDING_MESSAGE_THRESHOLD:-10}"
 allow_http="${GUESTBOOK_HEALTH_ALLOW_HTTP:-0}"
@@ -67,8 +67,8 @@ require_uint max-disk-used "${max_disk_used}" 1 99
 require_uint expected-migrations "${expected_migrations}" 1 1000
 require_uint login-window "${login_window}" 60 86400
 require_uint login-threshold "${login_threshold}" 1 1000
-require_uint owner-remove-window "${owner_remove_window}" 60 86400
-require_uint owner-remove-threshold "${owner_remove_threshold}" 1 1000
+require_uint owner-capability-window "${owner_capability_window}" 60 86400
+require_uint owner-capability-threshold "${owner_capability_threshold}" 1 1000
 require_uint open-report-threshold "${open_report_threshold}" 1 100000
 require_uint pending-message-threshold "${pending_message_threshold}" 1 100000
 [[ "${allow_http}" == 0 || "${allow_http}" == 1 ]] \
@@ -379,15 +379,15 @@ login_failures="$(sqlite3 -batch "${db_path}" \
 [[ "${login_failures}" =~ ^[0-9]+$ ]] || fail security login-count-invalid
 (( login_failures < login_threshold )) || fail security admin-login-threshold
 
-owner_remove_failures="$(sqlite3 -batch "${db_path}" \
+owner_capability_failures="$(sqlite3 -batch "${db_path}" \
     "SELECT COUNT(*) FROM security_events
-     WHERE event_type = 'message.owner_remove'
+     WHERE event_type IN ('message.owner_remove', 'message.owner_export')
        AND outcome IN ('failure', 'blocked')
-       AND created_at >= CAST(strftime('%s', 'now') AS INTEGER) - ${owner_remove_window};")" \
-    || fail security owner-remove-query-failed
-[[ "${owner_remove_failures}" =~ ^[0-9]+$ ]] || fail security owner-remove-count-invalid
-(( owner_remove_failures < owner_remove_threshold )) \
-    || fail security owner-remove-threshold
+       AND created_at >= CAST(strftime('%s', 'now') AS INTEGER) - ${owner_capability_window};")" \
+    || fail security owner-capability-query-failed
+[[ "${owner_capability_failures}" =~ ^[0-9]+$ ]] || fail security owner-capability-count-invalid
+(( owner_capability_failures < owner_capability_threshold )) \
+    || fail security owner-capability-threshold
 
 open_reports="$(sqlite3 -batch "${db_path}" \
     "SELECT COUNT(*) FROM abuse_reports WHERE status = 'open';")" \

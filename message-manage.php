@@ -82,6 +82,18 @@ $managedStatusLabel = match ($managedStatus) {
             <p class="manage-notice">The message is not currently visible on public guestbook surfaces.</p>
             <?php endif; ?>
 
+            <div class="manage-export">
+                <h2>Download a copy</h2>
+                <p>The JSON file contains the name and text you submitted, its timestamp and current status. It excludes network identifiers, review signals, internal reasons and ownership keys.</p>
+                <form method="POST" action="<?php echo e(message_manage_path($messageManagePathId)); ?>">
+                    <?php echo csrf_field(); ?>
+                    <input type="hidden" name="owner_csrf" value="<?php echo e($ownerCsrf); ?>">
+                    <input type="hidden" name="action" value="owner_export">
+                    <button class="btn secondary" type="submit">Download my message</button>
+                </form>
+                <p class="manage-export-note">Downloaded files remain on this device until you remove them.</p>
+            </div>
+
             <div class="manage-danger">
                 <h2>Remove this message</h2>
                 <p>Removal immediately hides it from this site's pages, search, feeds, API and sitemap. It cannot be republished through moderation. External caches, screenshots and backups may retain earlier copies.</p>

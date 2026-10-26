@@ -122,13 +122,14 @@ sqlite3 "${storage_dir}/database.sqlite" "DELETE FROM security_events;"
 sqlite3 "${storage_dir}/database.sqlite" \
     "INSERT INTO security_events (event_type, outcome, created_at)
      WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x + 1 FROM n WHERE x < 3)
-     SELECT 'message.owner_remove', 'failure', CAST(strftime('%s', 'now') AS INTEGER) FROM n;"
+     SELECT CASE WHEN x = 1 THEN 'message.owner_remove' ELSE 'message.owner_export' END,
+            'failure', CAST(strftime('%s', 'now') AS INTEGER) FROM n;"
 set +e
 owner_security_output="$(env "${health_env[@]}" bash "${repo_dir}/scripts/healthcheck.sh" 2>&1)"
 owner_security_exit=$?
 set -e
 [[ "${owner_security_exit}" -ne 0 ]]
-[[ "${owner_security_output}" == *'component=security reason=owner-remove-threshold'* ]]
+[[ "${owner_security_output}" == *'component=security reason=owner-capability-threshold'* ]]
 sqlite3 "${storage_dir}/database.sqlite" "DELETE FROM security_events;"
 
 sqlite3 "${storage_dir}/database.sqlite" \

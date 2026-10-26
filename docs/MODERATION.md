@@ -46,12 +46,16 @@ New submissions also receive a separate owner capability. It is 256 random bits,
 stored raw only in an HttpOnly/SameSite Strict cookie scoped to
 `/messages/{id}/manage`; SQLite stores a purpose-separated HMAC. The private page is
 `no-store`/`noindex`, excludes analytics and message text, and requires same-origin,
-session CSRF and capability-bound CSRF checks for withdrawal. The posting browser can
-move its one message from any state to `deleted/requested`; the transaction clears the
-capability, temporary identifiers and featured state and appends a logical owner audit
-event. A database trigger and the moderation helper prevent republication, including
-after an application rollback. Losing the cookie means losing self-service control;
-the public Report route remains the fallback.
+session CSRF and capability-bound CSRF checks for both export and withdrawal. An
+explicit download returns a JSON attachment containing only the message number,
+submitted author/text, submission time and current state; it excludes identifiers,
+risk/review metadata, internal reasons and capability material. The posting browser
+can then move its one message from any state to `deleted/requested`; that transaction
+clears the capability, temporary identifiers and featured state. Export and withdrawal
+append separate logical owner audit events without content. A database trigger and the
+moderation helper prevent republication, including after an application rollback.
+Losing the cookie means losing self-service control; the public Report route remains
+the fallback.
 Unused ownership digests are detached after 366 days by scheduled maintenance, one
 day after the browser cookie's maximum lifetime.
 
@@ -117,8 +121,9 @@ cannot publish hidden content through this action.
   using only `component=moderation reason=open-report-threshold`.
 - Ten simultaneous pending messages likewise page with only
   `component=moderation reason=pending-message-threshold`.
-- Ten failed/blocked owner-withdrawal attempts in 15 minutes page on the next
-  five-minute probe using only `component=security reason=owner-remove-threshold`.
+- Ten failed/blocked owner-capability actions (export or withdrawal) in 15 minutes page
+  on the next five-minute probe using only
+  `component=security reason=owner-capability-threshold`.
 - Health and restore drills reject malformed capability digests or a withdrawn row
   that is public, tokenized, identifiable, featured or carries the wrong reason.
 - Login, blocked actions and review outcomes remain visible in bounded security logs;
@@ -170,11 +175,12 @@ remains self-hosted.
 ## Verification and rollback
 
 Unit tests prove state transitions, identifier detachment, report lifecycle,
-retention, risk scoring, private search bounds, atomic bulk rollback, identifier-free
-operational aggregates and append-only triggers. HTTP and browser tests exercise the
-anonymous-to-admin flow, filters, bounded explicit selection, confirmations, activity
-summaries and pagination through real cookies, CSRF and redirects. The health smoke
-test proves backlog alert generation without using production data.
+retention, risk scoring, private search bounds, atomic bulk rollback, the whitelisted
+owner export projection, identifier-free operational aggregates and append-only
+triggers. HTTP and browser tests exercise the anonymous-to-admin flow, private JSON
+download, filters, bounded explicit selection, confirmations, activity summaries and
+pagination through real cookies, CSRF and redirects. The health smoke test proves
+backlog and owner-capability alert generation without using production data.
 
 Migrations `004_moderation_audit.sql`, `006_submission_risk.sql`,
 `007_featured_message.sql` and `008_message_ownership.sql` only add columns, tables,

@@ -434,6 +434,8 @@ grep --fixed-strings --quiet 'Manage message #' <<<"${manage_html}"
 grep --fixed-strings --quiet 'Message posted!' <<<"${manage_html}"
 grep --fixed-strings --quiet "href=\"/messages/${message_id}\"" <<<"${manage_html}"
 grep --fixed-strings --quiet 'data-clear-compose-draft' <<<"${manage_html}"
+grep --fixed-strings --quiet 'Download my message' <<<"${manage_html}"
+grep --fixed-strings --quiet 'It excludes network identifiers, review signals, internal reasons and ownership keys.' <<<"${manage_html}"
 if grep --fixed-strings --quiet 'Hello from the isolated smoke test' <<<"${manage_html}" \
     || grep --quiet 'analytics.js\|rel="canonical"\|gbowner_' <<<"${manage_html}"; then
     echo 'Private management page exposed content, analytics, canonical metadata or cookie names.' >&2
@@ -932,6 +934,66 @@ owner_csrf="$(sed -n 's/.*name="owner_csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <
 manage_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${manage_html}" | head -n 1)"
 [[ "${owner_csrf}" =~ ^[0-9a-f]{64}$ ]]
 [[ "${manage_csrf}" =~ ^[0-9a-f]{64}$ ]]
+
+invalid_export_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${manage_csrf}" \
+    --data-urlencode "owner_csrf=$(printf '0%.0s' {1..64})" \
+    --data-urlencode 'action=owner_export' \
+    "${APP_ORIGIN}${manage_path}")"
+[[ "${invalid_export_code}" == 403 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT COUNT(*) FROM admin_audit_events
+     WHERE event_type = 'message.owner_export' AND related_id = ${message_id};")" == 0 ]]
+
+export_headers="${tmp_dir}/owner-export-headers.txt"
+export_body="${tmp_dir}/owner-export.json"
+export_code="$(curl --silent --show-error \
+    --output "${export_body}" \
+    --write-out '%{http_code}' \
+    --dump-header "${export_headers}" \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${manage_csrf}" \
+    --data-urlencode "owner_csrf=${owner_csrf}" \
+    --data-urlencode 'action=owner_export' \
+    "${APP_ORIGIN}${manage_path}")"
+[[ "${export_code}" == 200 ]]
+grep --ignore-case --quiet '^Content-Type: application/json; charset=utf-8' "${export_headers}"
+grep --ignore-case --quiet '^Cache-Control: private, no-store, max-age=0' "${export_headers}"
+grep --ignore-case --quiet "^Content-Disposition: attachment; filename=\"micutu-guestbook-message-${message_id}.json\"" "${export_headers}"
+grep --ignore-case --quiet "^Content-Security-Policy: default-src 'none'; sandbox" "${export_headers}"
+grep --ignore-case --quiet '^X-Content-Type-Options: nosniff' "${export_headers}"
+# The PHP snippet is intentionally single-quoted shell input.
+# shellcheck disable=SC2016
+php -r '
+    $document = json_decode(file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
+    $message = $document["message"] ?? null;
+    $ok = array_keys($document) === ["export_version", "exported_at", "message"]
+        && $document["export_version"] === "1.0"
+        && is_string($document["exported_at"])
+        && array_keys($message ?? []) === ["id", "author", "content", "submitted_at", "status"]
+        && $message["id"] === (int) $argv[2]
+        && $message["author"] === "Alice"
+        && $message["content"] === "Hello from the isolated smoke test"
+        && str_ends_with($message["submitted_at"], "Z")
+        && $message["status"] === "published";
+    exit($ok ? 0 : 1);
+' "${export_body}" "${message_id}"
+if grep --extended-regexp --quiet 'ip_hash|content_fingerprint|risk_score|risk_flags|owner_token|moderation_reason' "${export_body}"; then
+    echo 'Owner export exposed internal moderation or capability material.' >&2
+    exit 1
+fi
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT COUNT(*) FROM security_events
+     WHERE event_type = 'message.owner_export' AND outcome = 'success'
+       AND related_id = ${message_id} AND subject_hash IS NULL;")" == 1 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT COUNT(*) FROM admin_audit_events
+     WHERE event_type = 'message.owner_export' AND outcome = 'success'
+       AND related_id = ${message_id};")" == 1 ]]
+
 withdraw_headers="${tmp_dir}/withdraw-headers.txt"
 withdraw_code="$(request_code \
     --cookie "${cookie_jar}" \
