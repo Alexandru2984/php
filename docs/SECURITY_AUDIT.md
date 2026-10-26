@@ -12,8 +12,9 @@ through S-05 were remediated on 2026-10-21 using an immutable release, a dedicat
 Unix/FPM identity, fail-closed configuration, persistent throttling and an atomic
 cutover. The production database remained at three messages and passed integrity
 checks before and after migration. Detection, a privacy disclosure, reversible
-moderation, category-only abuse reporting, explainable submission-risk review,
-indexed search, a sessionless central calendar archive, private author withdrawal and an incident-response runbook are now
+moderation, category-only abuse reporting, explainable submission-risk review, an
+indexed private moderation workspace, public indexed search, a sessionless central
+calendar archive, private author withdrawal and an incident-response runbook are now
 deployed. R2 and Google Drive both hold verified encrypted backups; the Drive remote
 still needs its own OAuth client before rclone retires the shared client. Real-browser Axe, reflow and keyboard checks now gate
 CI. First-party social preview metadata and single-message curation add no new vendor
@@ -41,7 +42,7 @@ incomplete.
   sandboxed service identity. Daily jobs and the weekly restore timer are enabled;
   restored disposable backups pass integrity, foreign-key, migration and schema
   checks. The restore unit's systemd exposure score was `0.8 SAFE` at rollout.
-- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 132 unit
+- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 146 unit
   tests, HTTP/FTS integration, moderation lifecycle, health alerting and compressed
   backup/restore rejection tests. A separate Chromium job checks five viewport widths,
   primary 44px touch targets, keyboard focus, nine post/search/moderation/owner flows,
@@ -79,6 +80,75 @@ incomplete.
 | S-22 | Low | Local drafts improve resilience but can leave message text on a shared device. | Draft storage is off by default, explicitly device-scoped in the UI, bounded to server field limits, expires after 24 hours and is deleted after successful submission or on request. The text-only preview uses DOM `textContent`; browser tests prove markup does not create elements or execute. A user with access to the same unlocked browser profile can still read an opted-in draft. | Keep opt-in off by default, do not sync drafts server-side, retain the clear control and re-evaluate before adding accounts, cloud sync or longer retention. |
 | S-23 | Low | Featured-message curation adds an admin-controlled ranking signal. | A stolen admin session could promote one already-public message, but cannot feature moderated content. Same-origin CSRF-protected POST, an expiring admin session, a one-row database constraint, append-only feature/unfeature audit and automatic clearing on moderation bound the impact. | Monitor unexpected feature audit events, rotate the admin credential/session on compromise and retain the one-message/public-only invariant. |
 | S-24 | Medium | An owner capability can irreversibly hide one future message but is not a complete erasure channel. | A 256-bit capability is held in an HttpOnly, Secure-in-production, SameSite Strict cookie scoped to one private path; only its HMAC is stored. Withdrawal needs session and capability CSRF, destroys the token, clears temporary identifiers, is audited and cannot be republished. Theft of a valid browser cookie or full same-origin execution can still withdraw that one message, while backups and the soft-deleted text remain. | Run the owner-token abuse tabletop, publish the dedicated privacy contact and authenticated statutory-erasure procedure, and assess successful-withdrawal anomaly detection without collecting new identity data. |
+| S-25 | Low | The admin can now find the complete moderation set without exposing private discovery publicly. | Authenticated search/filter/sort/pagination replaces the fixed latest-30 view. Generated FTS terms, fixed SQL fragments, bounded pages and a minimal projection limit injection, load and identifier exposure. Admin responses are no-store/noindex, same-origin referrer only and analytics-free; anonymous `admin_*` parameters fail closed. A valid stolen session can still read non-public content without an automatic read anomaly alert. | Preserve the private response and minimal-projection contracts, consider privacy-safe read anomaly detection, and include private discovery in the credential-compromise tabletop. |
+
+## CISO review: private moderation discovery
+
+**Date:** 2026-10-26
+
+**Verdict:** 🟡 MITIGATE THEN SHIP — the feature closes a real review blind spot with
+bounded, tested controls; clean reads through a stolen valid session still have
+unknown MTTD and the human incident exercise remains outstanding.
+
+### 1. Threat model (STRIDE top three)
+
+1. **Information disclosure (medium likelihood, high impact):** a shared cache,
+   crawler, referrer or analytics request could disclose non-public message content or
+   an operator query. Authentication, `private, no-store`,
+   `noindex,nofollow,noarchive`, same-origin referrers, an analytics-free response and
+   a projection that omits network hashes, ownership digests and fingerprints contain
+   those paths.
+2. **Injection/tampering (low likelihood, high impact):** crafted FTS or sort/state
+   input could alter the query. Search text becomes capped generated quoted terms and
+   a bound parameter; state and order clauses come only from fixed maps. Scalar,
+   length, value and page validation fails closed and is covered by unit and HTTP
+   tests.
+3. **Denial of service (low likelihood, medium impact):** expensive terms or deep
+   offsets could consume SQLite/CPU. Only an authenticated admin can reach the query;
+   input is capped at 100 characters/eight indexed terms, result pages contain ten
+   rows, and an out-of-range page is rejected after the bounded count. A stolen admin
+   session can still generate legitimate-looking query load until expiry.
+
+### 2. Blast radius and annual-loss input
+
+A compromised admin session can read the author, text, state and moderation/risk
+metadata for every public and non-public guestbook message. At review time production
+contains three messages. The workspace does not expose keyed network identifiers,
+ownership capability hashes, content fingerprints, application secrets, source code
+or other services. No monetary ALE is invented: calculation needs compromise
+frequency, record growth, operator response time/rate, notification population/cost
+and legal impact.
+
+### 3. Detection and MTTD
+
+CI catches anonymous exposure, cache/robot/referrer regressions, analytics inclusion,
+malformed filters, projection drift and browser reflow before deployment. Successful
+login and mutations remain audited, but query text is intentionally absent from logs,
+analytics and alerts. The five-minute production health probe does not authenticate
+or exercise this privileged read route. Therefore a clean read using a stolen valid
+session has no automatic alert and its honest MTTD is unknown.
+
+### 4. Response, runbook and exercise
+
+The incident-response runbook covers credential rotation, global session
+invalidation, evidence preservation, audit review, immutable rollback and edge-cache
+purge. Automated tests rehearse confidentiality headers and anonymous rejection. A
+human credential-compromise/private-discovery tabletop with measured containment and
+notification decisions has not been completed, preventing a green verdict.
+
+### 5. Regulatory window
+
+Non-public author names and content can be personal data. Suspected unauthorized
+access requires a documented breach assessment, and a qualifying incident retains
+GDPR's supervisory-authority notification window of up to 72 hours. The workspace
+does not complete the still-outstanding data-subject export/erasure/objection process.
+
+### 6. Vendors and supply chain
+
+This feature adds no package, migration, cookie, credential, subprocess, vendor,
+processor or external request. It reuses first-party PHP and the existing SQLite FTS5
+index. Self-hosted analytics is explicitly excluded from authenticated admin pages;
+Cloudflare and the VPS remain the existing transport/hosting boundary.
 
 ## CISO review: admin session lifecycle
 

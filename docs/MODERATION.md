@@ -81,6 +81,14 @@ cannot publish hidden content through this action.
 
 - All report and moderation mutations require same-origin POST plus a session CSRF
   token; moderation additionally requires the expiring admin session.
+- The authenticated workspace searches the indexed author/content fields, filters by
+  the five states or the combined non-public queue, and sorts by newest, oldest or
+  explainable risk in ten-row pages. Input and SQL fragments are allow-listed, the
+  projection excludes hashes and capability material, and out-of-range pages fail
+  closed.
+- Every authenticated admin response is private/no-store and
+  noindex/nofollow/noarchive, uses a same-origin referrer policy and omits analytics.
+  Anonymous requests containing admin discovery parameters return `400`.
 - Admin privilege expires after 30 idle minutes or 12 total hours. Strict session mode
   rejects unknown client-selected IDs; login, expiry and logout destroy the old ID,
   active sessions receive a new ID every 15 minutes, and privilege transitions rotate
@@ -147,8 +155,9 @@ remains self-hosted.
 ## Verification and rollback
 
 Unit tests prove state transitions, identifier detachment, report lifecycle,
-retention, risk scoring and append-only triggers. HTTP and browser tests exercise the
-anonymous-to-admin flow through real cookies, CSRF and redirects. The health smoke test proves backlog alert
+retention, risk scoring, private search bounds and append-only triggers. HTTP and
+browser tests exercise the anonymous-to-admin flow, filters and pagination through
+real cookies, CSRF and redirects. The health smoke test proves backlog alert
 generation without using production data.
 
 Migrations `004_moderation_audit.sql`, `006_submission_risk.sql`,

@@ -429,6 +429,46 @@ $ftsPlan->execute([':query' => '"stef"*']);
 $ftsPlanDetails = implode(' ', $ftsPlan->fetchAll(PDO::FETCH_COLUMN, 3));
 check(str_contains($ftsPlanDetails, 'VIRTUAL TABLE INDEX'), 'search query uses the FTS virtual index');
 
+$adminDefaultPage = admin_review_messages($seoDb, 'non_public', '', 'newest', 1, 10);
+check(
+    $adminDefaultPage['total'] === 1
+        && count($adminDefaultPage['items']) === 1
+        && $adminDefaultPage['items'][0]['author'] === 'Private author'
+        && !array_key_exists('ip_hash', $adminDefaultPage['items'][0])
+        && !array_key_exists('owner_token_hash', $adminDefaultPage['items'][0])
+        && !array_key_exists('content_fingerprint', $adminDefaultPage['items'][0]),
+    'admin review defaults to non-public rows with a minimal projection'
+);
+$adminSearchPage = admin_review_messages($seoDb, 'all', 'pending secret', 'risk', 1, 10);
+check(
+    $adminSearchPage['total'] === 1
+        && $adminSearchPage['items'][0]['status'] === 'pending',
+    'admin review searches all moderation states through bounded FTS terms'
+);
+$adminOldestPage = admin_review_messages($seoDb, 'all', '', 'oldest', 1, 1);
+$adminSecondPage = admin_review_messages($seoDb, 'all', '', 'oldest', 2, 1);
+check(
+    $adminOldestPage['total'] === 2
+        && $adminOldestPage['pages'] === 2
+        && $adminOldestPage['items'][0]['author'] === 'Public author'
+        && $adminSecondPage['items'][0]['author'] === 'Private author',
+    'admin review pagination and oldest-first ordering are deterministic'
+);
+$invalidAdminReviewRejected = 0;
+foreach ([
+    ['unknown', '', 'newest', 1, 10],
+    ['all', '', 'random', 1, 10],
+    ['all', '', 'newest', 3, 1],
+    ['all', str_repeat('x', 101), 'newest', 1, 10],
+] as $invalidReview) {
+    try {
+        admin_review_messages($seoDb, ...$invalidReview);
+    } catch (InvalidArgumentException | OutOfRangeException) {
+        $invalidAdminReviewRejected++;
+    }
+}
+check($invalidAdminReviewRejected === 4, 'admin review rejects invalid filters and pages');
+
 $subject = hash('sha256', 'test-subject');
 for ($attempt = 1; $attempt <= 4; $attempt++) {
     check(

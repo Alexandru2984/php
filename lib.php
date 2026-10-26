@@ -1076,6 +1076,100 @@ function fts5_query_from_text(string $input): ?string
     return $terms === [] ? null : implode(' AND ', array_values($terms));
 }
 
+/**
+ * Return one bounded page for the private moderation workspace.
+ *
+ * The projection deliberately excludes network identifiers, ownership digests and
+ * duplicate fingerprints. Dynamic SQL fragments come only from fixed allow-lists.
+ *
+ * @return array{items:list<array<string, mixed>>, total:int, pages:int}
+ */
+function admin_review_messages(
+    PDO $pdo,
+    string $status,
+    string $query,
+    string $sort,
+    int $page,
+    int $perPage = 10
+): array {
+    $allowedStatuses = array_merge(['non_public', 'all'], moderation_states());
+    if (!in_array($status, $allowedStatuses, true)
+        || !in_array($sort, ['newest', 'oldest', 'risk'], true)
+        || $page < 1
+        || $perPage < 1
+        || $perPage > 50
+        || mb_strlen($query, 'UTF-8') > 100) {
+        throw new InvalidArgumentException('Invalid admin review query');
+    }
+
+    $from = 'messages AS m';
+    $whereParts = [];
+    $params = [];
+    if ($status === 'non_public') {
+        $whereParts[] = 'm.status != :excluded_status';
+        $params[':excluded_status'] = 'published';
+    } elseif ($status !== 'all') {
+        $whereParts[] = 'm.status = :review_status';
+        $params[':review_status'] = $status;
+    }
+
+    $query = trim($query);
+    if ($query !== '') {
+        $ftsQuery = fts5_query_from_text($query);
+        if ($ftsQuery === null) {
+            $whereParts[] = '0 = 1';
+        } else {
+            $from = 'messages_fts JOIN messages AS m ON m.id = messages_fts.rowid';
+            $whereParts[] = 'messages_fts MATCH :review_query';
+            $params[':review_query'] = $ftsQuery;
+        }
+    }
+    $where = $whereParts === [] ? '' : ' WHERE ' . implode(' AND ', $whereParts);
+
+    $count = $pdo->prepare("SELECT COUNT(*) FROM {$from}{$where}");
+    $count->execute($params);
+    $total = (int) $count->fetchColumn();
+    $pages = max(1, (int) ceil($total / $perPage));
+    if ($page > $pages) {
+        throw new OutOfRangeException('Admin review page not found');
+    }
+
+    $order = match ($sort) {
+        'oldest' => 'COALESCE(m.moderated_at, m.deleted_at, m.created_at) ASC, m.id ASC',
+        'risk' => 'm.risk_score DESC, '
+            . 'COALESCE(m.moderated_at, m.deleted_at, m.created_at) DESC, m.id DESC',
+        default => 'COALESCE(m.moderated_at, m.deleted_at, m.created_at) DESC, m.id DESC',
+    };
+    $select = $pdo->prepare(
+        "SELECT m.id, m.author, m.content, m.status, m.moderation_reason,
+                m.moderated_at, m.created_at, m.risk_score, m.risk_flags,
+                m.owner_withdrawn_at
+         FROM {$from}{$where}
+         ORDER BY {$order} LIMIT :review_limit OFFSET :review_offset"
+    );
+    foreach ($params as $key => $value) {
+        $select->bindValue($key, $value, PDO::PARAM_STR);
+    }
+    $select->bindValue(':review_limit', $perPage, PDO::PARAM_INT);
+    $select->bindValue(':review_offset', ($page - 1) * $perPage, PDO::PARAM_INT);
+    $select->execute();
+    $items = $select->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($items as &$item) {
+        $decodedFlags = json_decode((string) $item['risk_flags'], true);
+        $item['risk_flag_codes'] = is_array($decodedFlags)
+            ? array_values(array_filter(
+                $decodedFlags,
+                static fn($flag): bool => is_string($flag)
+                    && in_array($flag, submission_risk_flags(), true)
+            ))
+            : [];
+        unset($item['risk_flags']);
+    }
+    unset($item);
+
+    return ['items' => $items, 'total' => $total, 'pages' => $pages];
+}
+
 /** Append a minimal, immutable admin audit event. */
 function admin_audit_event(
     PDO $pdo,

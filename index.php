@@ -641,6 +641,69 @@ $_SESSION['compose_issued_at'] = time();
 // Read model — search + pagination
 // ---------------------------------------------------------------------------
 $isAdmin = !empty($_SESSION['is_admin']);
+$adminReviewStatus = 'non_public';
+$adminReviewQuery = '';
+$adminReviewSort = 'newest';
+$adminReviewPage = 1;
+$adminReviewPerPage = 10;
+$adminReviewParameterKeys = ['admin_status', 'admin_q', 'admin_sort', 'admin_page'];
+$hasAdminReviewParameters = false;
+foreach ($adminReviewParameterKeys as $adminParameterKey) {
+    if (array_key_exists($adminParameterKey, $_GET)) {
+        $hasAdminReviewParameters = true;
+        break;
+    }
+}
+if ($hasAdminReviewParameters && !$isAdmin) {
+    abort_response(400, 'Unsupported query parameter.');
+}
+if ($isAdmin) {
+    header('Cache-Control: private, no-store, max-age=0');
+    header('Pragma: no-cache');
+    header('X-Robots-Tag: noindex, nofollow, noarchive');
+    header('Referrer-Policy: same-origin');
+
+    if (array_key_exists('admin_status', $_GET)) {
+        $adminReviewStatusInput = string_input($_GET, 'admin_status');
+        if ($adminReviewStatusInput === null
+            || !in_array(
+                $adminReviewStatusInput,
+                array_merge(['non_public', 'all'], moderation_states()),
+                true
+            )) {
+            abort_response(400, 'Invalid admin status filter.');
+        }
+        $adminReviewStatus = $adminReviewStatusInput;
+    }
+    if (array_key_exists('admin_q', $_GET)) {
+        $adminReviewQueryInput = string_input($_GET, 'admin_q');
+        if ($adminReviewQueryInput === null
+            || mb_strlen($adminReviewQueryInput, 'UTF-8') > 100) {
+            abort_response(400, 'Invalid admin search.');
+        }
+        $adminReviewQuery = trim($adminReviewQueryInput);
+    }
+    if (array_key_exists('admin_sort', $_GET)) {
+        $adminReviewSortInput = string_input($_GET, 'admin_sort');
+        if ($adminReviewSortInput === null
+            || !in_array($adminReviewSortInput, ['newest', 'oldest', 'risk'], true)) {
+            abort_response(400, 'Invalid admin sort.');
+        }
+        $adminReviewSort = $adminReviewSortInput;
+    }
+    if (array_key_exists('admin_page', $_GET)) {
+        $adminReviewPageInput = string_input($_GET, 'admin_page');
+        if ($adminReviewPageInput === null
+            || preg_match('/\A[1-9][0-9]{0,5}\z/D', $adminReviewPageInput) !== 1) {
+            abort_response(400, 'Invalid admin page.');
+        }
+        $adminReviewPage = (int) $adminReviewPageInput;
+    }
+}
+$adminReviewFiltersActive = $adminReviewStatus !== 'non_public'
+    || $adminReviewQuery !== ''
+    || $adminReviewSort !== 'newest'
+    || $adminReviewPage !== 1;
 
 if ($isArchiveMonth) {
     foreach (array_keys($_GET) as $queryKey) {
@@ -753,6 +816,8 @@ foreach ($messages as $message) {
 $archiveMonths = public_archive_months($pdo, 12);
 
 $moderatedMessages = [];
+$moderatedMessageTotal = 0;
+$moderatedMessagePages = 1;
 $openReports = [];
 $adminAuditEvents = [];
 $securityEvents = [];
@@ -764,23 +829,21 @@ if ($isAdmin) {
             $moderationCounts[(string) $row['status']] = (int) $row['total'];
         }
     }
-    $moderatedMessages = $pdo->query(
-        "SELECT id, author, content, status, moderation_reason, moderated_at, created_at,
-                risk_score, risk_flags, owner_withdrawn_at
-         FROM messages WHERE status != 'published'
-         ORDER BY COALESCE(moderated_at, deleted_at, created_at) DESC, id DESC LIMIT 30"
-    )->fetchAll();
-    foreach ($moderatedMessages as &$moderatedMessage) {
-        $decodedFlags = json_decode((string) $moderatedMessage['risk_flags'], true);
-        $moderatedMessage['risk_flag_codes'] = is_array($decodedFlags)
-            ? array_values(array_filter(
-                $decodedFlags,
-                static fn($flag): bool => is_string($flag)
-                    && in_array($flag, submission_risk_flags(), true)
-            ))
-            : [];
+    try {
+        $adminReview = admin_review_messages(
+            $pdo,
+            $adminReviewStatus,
+            $adminReviewQuery,
+            $adminReviewSort,
+            $adminReviewPage,
+            $adminReviewPerPage
+        );
+    } catch (OutOfRangeException) {
+        abort_response(404, 'Admin review page not found.');
     }
-    unset($moderatedMessage);
+    $moderatedMessages = $adminReview['items'];
+    $moderatedMessageTotal = $adminReview['total'];
+    $moderatedMessagePages = $adminReview['pages'];
     $openReports = $pdo->query(
         "SELECT r.id, r.message_id, r.category, r.created_at,
                 m.author, m.content, m.status AS message_status
@@ -859,7 +922,10 @@ $primaryMessage = $messageId !== null && isset($messages[0]) ? $messages[0] : nu
 $siteName = 'Micuțu Guestbook';
 $socialImageUrl = APP_ORIGIN . asset('assets/social-card.png');
 $socialImageAlt = 'An open guestbook surrounded by friendly message cards.';
-if (is_array($primaryMessage)) {
+if ($isAdmin) {
+    $pageTitle = 'Admin workspace · ' . $siteName;
+    $pageDescription = 'Private moderation and audit workspace.';
+} elseif (is_array($primaryMessage)) {
     $primaryAuthor = (string) ($primaryMessage['author'] ?: 'Anonymous');
     $pageTitle = 'Message by ' . seo_excerpt($primaryAuthor, 60) . ' · ' . $siteName;
     $pageDescription = seo_excerpt((string) $primaryMessage['content']);
@@ -876,9 +942,11 @@ if (is_array($primaryMessage)) {
     $pageTitle = 'Micuțu Guestbook · Leave a public message';
     $pageDescription = 'A small public guestbook for messages, thoughts and hellos.';
 }
-$robotsPolicy = $isAdmin || $q !== ''
-    ? 'noindex, follow'
-    : 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1';
+$robotsPolicy = $isAdmin
+    ? 'noindex, nofollow, noarchive'
+    : ($q !== ''
+        ? 'noindex, follow'
+        : 'index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1');
 $isCanonicalHome = $messageId === null && !$isArchiveMonth && $q === '' && $page === 1;
 $feedTitle = $q !== ''
     ? 'Search results'
@@ -898,6 +966,26 @@ function feed_url(int $page, string $q, ?int $archiveYear, ?int $archiveMonth): 
         static fn($v) => $v !== null && $v !== '');
     return '/' . ($params ? '?' . http_build_query($params) : '');
 }
+
+/** Build a same-origin URL for the private moderation workspace. */
+function admin_review_url(string $status, string $query, string $sort, int $page): string
+{
+    $params = [];
+    if ($status !== 'non_public') {
+        $params['admin_status'] = $status;
+    }
+    if ($query !== '') {
+        $params['admin_q'] = $query;
+    }
+    if ($sort !== 'newest') {
+        $params['admin_sort'] = $sort;
+    }
+    if ($page > 1) {
+        $params['admin_page'] = $page;
+    }
+    return '/' . ($params === [] ? '' : '?' . http_build_query($params))
+        . '#moderation-title';
+}
 $previousPageUrl = $page > 1
     ? APP_ORIGIN . feed_url($page - 1, $q, $archiveYear, $archiveMonth)
     : null;
@@ -915,6 +1003,13 @@ $statusLabels = [
     'hidden' => 'Hidden',
     'deleted' => 'Deleted',
     'spam' => 'Spam',
+];
+$adminReviewStatusLabels = ['non_public' => 'All non-public', 'all' => 'All states']
+    + $statusLabels;
+$adminReviewSortLabels = [
+    'newest' => 'Newest activity',
+    'oldest' => 'Oldest activity',
+    'risk' => 'Highest review score',
 ];
 $reasonLabels = [
     'spam' => 'Spam',
@@ -985,7 +1080,7 @@ $reportLabels = [
     <link rel="stylesheet" href="<?php echo e(asset('assets/style.css')); ?>">
     <script src="<?php echo e(asset('assets/theme-init.js')); ?>"></script>
     <script defer src="<?php echo e(asset('assets/app.js')); ?>"></script>
-    <?php if (ANALYTICS_WEBSITE_ID !== ''): ?>
+    <?php if (ANALYTICS_WEBSITE_ID !== '' && !$isAdmin): ?>
     <script defer src="<?php echo e(asset('assets/analytics.js')); ?>"
             data-website-id="<?php echo e(ANALYTICS_WEBSITE_ID); ?>"
             data-host-url="https://analytics.micutu.com"
@@ -1334,8 +1429,53 @@ $reportLabels = [
                 <?php endif; ?>
             </details>
 
-            <details class="admin-panel"<?php echo $moderatedMessages ? ' open' : ''; ?>>
-                <summary>Moderated messages · <?php echo count($moderatedMessages); ?> recent</summary>
+            <details class="admin-panel"<?php echo $moderatedMessages || $adminReviewFiltersActive ? ' open' : ''; ?>>
+                <summary>Review messages · <?php echo $moderatedMessageTotal; ?> match<?php echo $moderatedMessageTotal === 1 ? '' : 'es'; ?></summary>
+                <form class="admin-filters" method="GET" action="/" role="search" aria-label="Filter moderation workspace">
+                    <label class="admin-filter-search" for="admin-review-query">
+                        <span>Search names and messages</span>
+                        <input class="input" id="admin-review-query" name="admin_q" type="search"
+                               value="<?php echo e($adminReviewQuery); ?>" maxlength="100"
+                               autocomplete="off" placeholder="Name or message text">
+                    </label>
+                    <label for="admin-review-status">
+                        <span>Status</span>
+                        <select class="select" id="admin-review-status" name="admin_status">
+                            <?php foreach ($adminReviewStatusLabels as $value => $label): ?>
+                            <option value="<?php echo e($value); ?>"<?php echo $adminReviewStatus === $value ? ' selected' : ''; ?>><?php echo e($label); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <label for="admin-review-sort">
+                        <span>Order</span>
+                        <select class="select" id="admin-review-sort" name="admin_sort">
+                            <?php foreach ($adminReviewSortLabels as $value => $label): ?>
+                            <option value="<?php echo e($value); ?>"<?php echo $adminReviewSort === $value ? ' selected' : ''; ?>><?php echo e($label); ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </label>
+                    <div class="admin-filter-actions">
+                        <button class="btn secondary compact" type="submit">Apply filters</button>
+                        <?php if ($adminReviewFiltersActive): ?>
+                        <a class="linkbtn compact" href="/#moderation-title">Clear</a>
+                        <?php endif; ?>
+                    </div>
+                </form>
+                <?php
+                    $adminReviewFirst = $moderatedMessageTotal === 0
+                        ? 0
+                        : (($adminReviewPage - 1) * $adminReviewPerPage) + 1;
+                    $adminReviewLast = $moderatedMessageTotal === 0
+                        ? 0
+                        : min(
+                            $moderatedMessageTotal,
+                            $adminReviewFirst + count($moderatedMessages) - 1
+                        );
+                ?>
+                <p class="admin-result-count" aria-live="polite">
+                    Showing <?php echo $adminReviewFirst; ?>–<?php echo $adminReviewLast; ?> of <?php echo $moderatedMessageTotal; ?>.
+                    Search stays on this server and analytics is disabled for authenticated admin views.
+                </p>
                 <?php if ($moderatedMessages): ?>
                     <div class="moderation-list">
                     <?php foreach ($moderatedMessages as $moderated): ?>
@@ -1360,6 +1500,7 @@ $reportLabels = [
                             <p class="owner-withdrawn-note">Withdrawn by its author · cannot be republished.</p>
                             <?php else: ?>
                             <div class="review-actions moderation-actions">
+                            <?php if ($moderated['status'] !== 'published'): ?>
                             <form method="POST">
                                 <?php echo csrf_field(); ?>
                                 <input type="hidden" name="action" value="moderate">
@@ -1368,6 +1509,7 @@ $reportLabels = [
                                 <input type="hidden" name="reason" value="restored">
                                 <button class="btn secondary compact" type="submit"><?php echo icon('restore'); ?> Publish</button>
                             </form>
+                            <?php endif; ?>
                             <form method="POST" class="moderation-control">
                                 <?php echo csrf_field(); ?>
                                 <input type="hidden" name="action" value="moderate">
@@ -1400,7 +1542,32 @@ $reportLabels = [
                     <?php endforeach; ?>
                     </div>
                 <?php else: ?>
-                    <p class="panel-empty">No messages are currently moderated.</p>
+                    <p class="panel-empty">No messages match these review filters.</p>
+                <?php endif; ?>
+                <?php if ($moderatedMessagePages > 1): ?>
+                <nav class="admin-pager" aria-label="Moderation results pages">
+                    <?php if ($adminReviewPage > 1): ?>
+                    <a class="pager-btn" rel="prev" href="<?php echo e(admin_review_url(
+                        $adminReviewStatus,
+                        $adminReviewQuery,
+                        $adminReviewSort,
+                        $adminReviewPage - 1
+                    )); ?>">&larr; Previous page</a>
+                <?php else: ?>
+                    <span class="pager-btn disabled">&larr; Previous page</span>
+                    <?php endif; ?>
+                    <span class="pager-info">Page <?php echo $adminReviewPage; ?> of <?php echo $moderatedMessagePages; ?></span>
+                    <?php if ($adminReviewPage < $moderatedMessagePages): ?>
+                    <a class="pager-btn" rel="next" href="<?php echo e(admin_review_url(
+                        $adminReviewStatus,
+                        $adminReviewQuery,
+                        $adminReviewSort,
+                        $adminReviewPage + 1
+                    )); ?>">Next page &rarr;</a>
+                <?php else: ?>
+                    <span class="pager-btn disabled">Next page &rarr;</span>
+                    <?php endif; ?>
+                </nav>
                 <?php endif; ?>
             </details>
 
@@ -1474,8 +1641,10 @@ $reportLabels = [
             <p>Abuse reports contain only the selected category and message number. They do not store a reporter identifier or free-text explanation. Reviewed reports are deleted after 90 days; minimal append-only admin actions remain for accountability.</p>
             <p>Draft saving is optional. When enabled, the name and message stay only in this browser's local storage, expire after 24 hours and are removed after a successful submission. Previewing never sends additional data or renders message HTML.</p>
             <p>New submissions receive a private management page backed by a random HttpOnly, SameSite Strict cookie scoped to that path; only a keyed digest is stored in the database. The posting browser can withdraw its message from every application-controlled public surface, after which ordinary moderation cannot republish it. This is a soft withdrawal, not complete statutory erasure: audit records, backups and external copies can remain.</p>
-            <?php if (ANALYTICS_WEBSITE_ID !== ''): ?>
+            <?php if (ANALYTICS_WEBSITE_ID !== '' && !$isAdmin): ?>
             <p>This deployment loads a reviewed, versioned analytics tracker from this site and sends aggregate page and performance data to the self-hosted <code>analytics.micutu.com</code> endpoint. It respects Do Not Track and excludes query strings, URL fragments and form content.</p>
+            <?php elseif (ANALYTICS_WEBSITE_ID !== ''): ?>
+            <p>Analytics is disabled while the private admin workspace is authenticated.</p>
             <?php else: ?>
             <p>Optional analytics is disabled on this deployment.</p>
             <?php endif; ?>

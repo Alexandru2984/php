@@ -379,6 +379,26 @@ test('risk-queued duplicate is private, explained to admin and reversibly publis
   await expect(page.getByText(/Review score \d+\/100/)).toBeVisible();
   await expect(page.getByText('Recent duplicate')).toBeVisible();
 
+  const reviewFilters = page.getByRole('search', { name: 'Filter moderation workspace' });
+  await reviewFilters.getByRole('searchbox', { name: 'Search names and messages' })
+    .fill('Queued browser check');
+  await reviewFilters.getByRole('combobox', { name: 'Status' }).selectOption('pending');
+  await reviewFilters.getByRole('combobox', { name: 'Order' }).selectOption('risk');
+  await reviewFilters.getByRole('button', { name: 'Apply filters' }).click();
+  await expect(page).toHaveURL(/admin_q=Queued(?:\+|%20)browser(?:\+|%20)check/);
+  await expect(page.getByText('Review messages · 1 match')).toBeVisible();
+  await expect(page.getByText('Showing 1–1 of 1.')).toBeVisible();
+  await expect(page.locator('.moderation-item').filter({ hasText: 'Queued browser check' })).toBeVisible();
+  for (const target of [
+    reviewFilters.getByRole('searchbox', { name: 'Search names and messages' }),
+    reviewFilters.getByRole('combobox', { name: 'Status' }),
+    reviewFilters.getByRole('combobox', { name: 'Order' }),
+    reviewFilters.getByRole('button', { name: 'Apply filters' }),
+  ]) {
+    const box = await target.boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+  }
+
   page.once('dialog', async (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Feature message', exact: true }).first().click();
   await expect(page.getByRole('status')).toContainText('Featured message updated');

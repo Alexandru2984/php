@@ -633,6 +633,7 @@ php -r '$xml = simplexml_load_string(stream_get_contents(STDIN)); exit($xml === 
 legacy_headers="$(curl --silent --show-error --head "${APP_ORIGIN}/?format=json")"
 grep --ignore-case --quiet '^Deprecation: true' <<<"${legacy_headers}"
 grep --ignore-case --quiet '^Link: </api/v1/messages>; rel="successor-version"' <<<"${legacy_headers}"
+[[ "$(request_code --cookie "${cookie_jar}" "${APP_ORIGIN}/?admin_status=pending")" == 400 ]]
 
 login_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/")"
 login_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${login_html}" | head -n 1)"
@@ -670,12 +671,52 @@ admin_session_id="$(cookie_value "${cookie_jar}" gbsid)"
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM security_events WHERE event_type = 'admin.login';")" == 2 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM admin_audit_events WHERE event_type = 'admin.login';")" == 1 ]]
 
-admin_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
+admin_headers="${tmp_dir}/admin-headers.txt"
+admin_html="$(curl --silent --show-error --dump-header "${admin_headers}" --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
 grep --quiet 'Sign out' <<<"${admin_html}"
 grep --quiet 'Abuse reports · 1 open' <<<"${admin_html}"
 grep --quiet 'Append-only admin audit' <<<"${admin_html}"
 grep --quiet 'Review score ' <<<"${admin_html}"
 grep --quiet 'Recent duplicate' <<<"${admin_html}"
+grep --fixed-strings --quiet '<title>Admin workspace · Micuțu Guestbook</title>' <<<"${admin_html}"
+grep --fixed-strings --quiet '<meta name="robots" content="noindex, nofollow, noarchive">' <<<"${admin_html}"
+grep --fixed-strings --quiet 'aria-label="Filter moderation workspace"' <<<"${admin_html}"
+grep --fixed-strings --quiet 'Search stays on this server and analytics is disabled for authenticated admin views.' <<<"${admin_html}"
+grep --ignore-case --quiet '^Cache-Control: private, no-store, max-age=0' "${admin_headers}"
+grep --ignore-case --quiet '^X-Robots-Tag: noindex, nofollow, noarchive' "${admin_headers}"
+grep --ignore-case --quiet '^Referrer-Policy: same-origin' "${admin_headers}"
+if grep --quiet 'analytics.js' <<<"${admin_html}"; then
+    echo 'Authenticated admin response unexpectedly loaded analytics.' >&2
+    exit 1
+fi
+
+filtered_admin_html="$(curl --silent --show-error --get --cookie "${cookie_jar}" \
+    --data-urlencode 'admin_status=pending' \
+    --data-urlencode 'admin_q=Copy bot' \
+    --data-urlencode 'admin_sort=risk' \
+    "${APP_ORIGIN}/")"
+grep --fixed-strings --quiet 'value="pending" selected' <<<"${filtered_admin_html}"
+grep --fixed-strings --quiet 'value="risk" selected' <<<"${filtered_admin_html}"
+grep --fixed-strings --quiet 'value="Copy bot"' <<<"${filtered_admin_html}"
+grep --fixed-strings --quiet 'Review messages · 1 match' <<<"${filtered_admin_html}"
+grep --fixed-strings --quiet '<strong>Copy bot</strong>' <<<"${filtered_admin_html}"
+grep --fixed-strings --quiet 'Showing 1–1 of 1.' <<<"${filtered_admin_html}"
+
+empty_admin_html="$(curl --silent --show-error --get --cookie "${cookie_jar}" \
+    --data-urlencode 'admin_status=published' \
+    --data-urlencode 'admin_q=Copy bot' \
+    "${APP_ORIGIN}/")"
+grep --fixed-strings --quiet 'Review messages · 0 matches' <<<"${empty_admin_html}"
+grep --fixed-strings --quiet 'No messages match these review filters.' <<<"${empty_admin_html}"
+if grep --fixed-strings --quiet '<strong>Copy bot</strong>' <<<"${empty_admin_html}"; then
+    echo 'Admin status filter returned a row from another state.' >&2
+    exit 1
+fi
+[[ "$(request_code --cookie "${cookie_jar}" "${APP_ORIGIN}/?admin_status%5B%5D=pending")" == 400 ]]
+[[ "$(request_code --cookie "${cookie_jar}" "${APP_ORIGIN}/?admin_q%5B%5D=copy")" == 400 ]]
+[[ "$(request_code --cookie "${cookie_jar}" "${APP_ORIGIN}/?admin_sort=random")" == 400 ]]
+[[ "$(request_code --cookie "${cookie_jar}" "${APP_ORIGIN}/?admin_page=0")" == 400 ]]
+[[ "$(request_code --cookie "${cookie_jar}" "${APP_ORIGIN}/?admin_page=2")" == 404 ]]
 
 admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
 [[ "${admin_csrf}" =~ ^[0-9a-f]{64}$ && "${admin_csrf}" != "${login_csrf}" ]]
@@ -741,7 +782,7 @@ fi
 
 admin_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
 admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
-grep --quiet 'Moderated messages · 2 recent' <<<"${admin_html}"
+grep --fixed-strings --quiet 'Review messages · 2 matches' <<<"${admin_html}"
 report_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT id FROM abuse_reports WHERE status = 'open';")"
 review_code="$(request_code \
     --cookie "${cookie_jar}" \

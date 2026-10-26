@@ -22,6 +22,27 @@ Search is intentionally plain text, not an FTS query language. The parser:
 Author matches have higher BM25 weight than content matches. Ties use newest-first
 ordering. Existing bounded page size and request validation remain in force.
 
+## Private moderation search
+
+An authenticated admin can reuse the index to review all moderation states without
+turning private content into a public search surface. The workspace supports a
+100-character plain-text query, exact state filters, newest/oldest/risk ordering and
+ten-row pages. Every parameter must be scalar; status and sort use allow-lists. FTS
+receives only the same generated, quoted terms used by public search, while sort and
+state SQL fragments are selected from fixed application maps. Invalid and
+out-of-range pages fail closed.
+
+The result query deliberately projects only the message number, author, content,
+state, controlled moderation metadata, creation time and explainable risk fields. It
+does not select network hashes, capability digests or content fingerprints. Admin
+responses are private/no-store, noindex/nofollow/noarchive and same-origin referrer
+only. The analytics script is absent from every authenticated admin response, so
+search terms and non-public message text do not enter first-party analytics. Search
+terms are also excluded from security events and Telegram alerts.
+
+Anonymous use of any `admin_*` discovery parameter returns `400`; public routes and
+their cache/search-engine contracts are otherwise unchanged.
+
 ## Index lifecycle and recovery
 
 Migration `005_full_text_search.sql` creates an external-content FTS5 table, initial
