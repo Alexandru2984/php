@@ -19,7 +19,8 @@ criteria.
 - **Partially delivered:** Stage 3 now has category-only abuse reports, a responsive
   private workspace with indexed search, state filters, risk/newest/oldest sorting and
   bounded pagination plus queue age, high-risk work, security-exception and active-
-  throttle aggregates, five moderation states, reversible actions, controlled reasons,
+  throttle aggregates, atomic bounded bulk suppression/re-queue, five moderation
+  states, reversible actions, controlled reasons,
   privacy/about UI, identifier minimisation and append-only admin audit; Stage 5 now has RSS/permalinks,
   a sessionless versioned read API, signed cursor pagination, strong ETags and
   OpenAPI plus bounded SQLite FTS5 search; responsive/accessibility foundations and
@@ -108,8 +109,9 @@ clean.
 - Add an append-only admin audit trail for login, approval, hide, restore, export and
   settings changes.
 - Extend the responsive admin workspace with carefully authorized bulk actions. Its
-  review queue, indexed search, state filters, sorting, bounded pagination, aggregate
-  operational stats and privacy-minimal suspicious-activity view are delivered.
+  explicit-selection, 20-message atomic batches, review queue, indexed search, state
+  filters, sorting, bounded pagination, aggregate operational stats and privacy-minimal
+  suspicious-activity view are delivered; publication intentionally remains individual.
 - Add privacy/about/report-abuse pages, an operator contact, consent-aware analytics,
   retention policy and data export/erasure workflow.
 - Erase `ip_hash` after the rate-limit/abuse window and rotate purpose-specific keys

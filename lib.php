@@ -413,6 +413,34 @@ function id_input(array $source, string $key): ?int
     return $parsed === false ? null : $parsed;
 }
 
+/** Parse a bounded, duplicate-free list of positive database identifiers. */
+function id_list_input(array $source, string $key, int $maximum = 20): ?array
+{
+    if ($maximum < 1 || !array_key_exists($key, $source) || !is_array($source[$key])) {
+        return null;
+    }
+
+    $values = $source[$key];
+    if (!array_is_list($values) || $values === [] || count($values) > $maximum) {
+        return null;
+    }
+
+    $ids = [];
+    $seen = [];
+    foreach ($values as $value) {
+        if (!is_string($value)) {
+            return null;
+        }
+        $id = id_input(['id' => $value], 'id');
+        if ($id === null || isset($seen[$id])) {
+            return null;
+        }
+        $seen[$id] = true;
+        $ids[] = $id;
+    }
+    return $ids;
+}
+
 /** Additional same-origin defence for state-changing browser requests. */
 function same_origin_request(): bool
 {
@@ -713,6 +741,12 @@ function abuse_report_categories(): array
 function moderation_states(): array
 {
     return ['pending', 'published', 'hidden', 'deleted', 'spam'];
+}
+
+/** Bulk actions may suppress or re-queue content, never publish it. */
+function bulk_moderation_states(): array
+{
+    return ['pending', 'hidden', 'deleted', 'spam'];
 }
 
 /** Controlled moderation reasons; arbitrary admin notes are deliberately excluded. */
@@ -1348,7 +1382,8 @@ function moderate_message(
 ): bool {
     if ($messageId < 1
         || !in_array($newState, moderation_states(), true)
-        || !in_array($reasonCode, moderation_reasons(), true)) {
+        || !in_array($reasonCode, moderation_reasons(), true)
+        || preg_match('/\A[0-9a-f]{64}\z/D', $actorHash) !== 1) {
         throw new InvalidArgumentException('Invalid moderation transition');
     }
     $now ??= time();
@@ -1370,74 +1405,193 @@ function moderate_message(
         if (!is_string($previousState) || !in_array($previousState, moderation_states(), true)) {
             throw new RuntimeException('Message has an invalid moderation state');
         }
-        $wasFeatured = is_string($message['featured_at']) && $message['featured_at'] !== '';
-
-        $update = $pdo->prepare(
-            "UPDATE messages
-             SET status = :new_state,
-                 moderation_reason = :reason,
-                 moderated_at = datetime(:now, 'unixepoch'),
-                 deleted_at = CASE
-                     WHEN :new_state = 'deleted' THEN datetime(:now, 'unixepoch')
-                     ELSE NULL
-                 END,
-                 ip_hash = CASE WHEN :new_state = 'published' THEN ip_hash ELSE NULL END,
-                 featured_at = CASE
-                     WHEN :new_state = 'published' THEN featured_at
-                     ELSE NULL
-                 END,
-                 feature_changed_at = CASE
-                     WHEN :new_state != 'published' AND featured_at IS NOT NULL
-                         THEN datetime(:now, 'unixepoch')
-                     ELSE feature_changed_at
-                 END
-             WHERE id = :id AND status = :previous_state"
-        );
-        $update->execute([
-            ':new_state' => $newState,
-            ':reason' => $reasonCode,
-            ':now' => $now,
-            ':id' => $messageId,
-            ':previous_state' => $previousState,
-        ]);
-        if ($update->rowCount() !== 1) {
-            throw new RuntimeException('Concurrent moderation transition');
-        }
-
-        if ($wasFeatured && $newState !== 'published') {
-            admin_audit_event(
-                $pdo,
-                'message.unfeature',
-                'success',
-                $actorHash,
-                $messageId,
-                null,
-                null,
-                null,
-                $now
-            );
-        }
-
-        $eventType = match ($newState) {
-            'published' => 'message.restore',
-            'hidden' => 'message.hide',
-            'deleted' => 'message.delete',
-            'spam' => 'message.spam',
-            'pending' => 'message.pending',
-        };
-        admin_audit_event(
+        apply_moderation_transition(
             $pdo,
-            $eventType,
-            'success',
-            $actorHash,
             $messageId,
+            $message,
             $previousState,
             $newState,
             $reasonCode,
+            $actorHash,
             $now
         );
         $pdo->exec('COMMIT');
         return true;
+    } catch (Throwable $e) {
+        try {
+            $pdo->exec('ROLLBACK');
+        } catch (Throwable) {
+            // Preserve the original exception.
+        }
+        throw $e;
+    }
+}
+
+/**
+ * Apply a previously validated transition inside the caller's transaction.
+ *
+ * The current row is supplied by the locked preflight read so a bulk operation can
+ * validate every selected message before changing any of them.
+ */
+function apply_moderation_transition(
+    PDO $pdo,
+    int $messageId,
+    array $message,
+    string $previousState,
+    string $newState,
+    string $reasonCode,
+    string $actorHash,
+    int $now
+): void {
+    $wasFeatured = is_string($message['featured_at'] ?? null)
+        && $message['featured_at'] !== '';
+
+    $update = $pdo->prepare(
+        "UPDATE messages
+         SET status = :new_state,
+             moderation_reason = :reason,
+             moderated_at = datetime(:now, 'unixepoch'),
+             deleted_at = CASE
+                 WHEN :new_state = 'deleted' THEN datetime(:now, 'unixepoch')
+                 ELSE NULL
+             END,
+             ip_hash = CASE WHEN :new_state = 'published' THEN ip_hash ELSE NULL END,
+             featured_at = CASE
+                 WHEN :new_state = 'published' THEN featured_at
+                 ELSE NULL
+             END,
+             feature_changed_at = CASE
+                 WHEN :new_state != 'published' AND featured_at IS NOT NULL
+                     THEN datetime(:now, 'unixepoch')
+                 ELSE feature_changed_at
+             END
+         WHERE id = :id AND status = :previous_state"
+    );
+    $update->execute([
+        ':new_state' => $newState,
+        ':reason' => $reasonCode,
+        ':now' => $now,
+        ':id' => $messageId,
+        ':previous_state' => $previousState,
+    ]);
+    if ($update->rowCount() !== 1) {
+        throw new RuntimeException('Concurrent moderation transition');
+    }
+
+    if ($wasFeatured && $newState !== 'published') {
+        admin_audit_event(
+            $pdo,
+            'message.unfeature',
+            'success',
+            $actorHash,
+            $messageId,
+            null,
+            null,
+            null,
+            $now
+        );
+    }
+
+    $eventType = match ($newState) {
+        'published' => 'message.restore',
+        'hidden' => 'message.hide',
+        'deleted' => 'message.delete',
+        'spam' => 'message.spam',
+        'pending' => 'message.pending',
+    };
+    admin_audit_event(
+        $pdo,
+        $eventType,
+        'success',
+        $actorHash,
+        $messageId,
+        $previousState,
+        $newState,
+        $reasonCode,
+        $now
+    );
+}
+
+/**
+ * Atomically move up to 20 explicitly selected messages to a non-public state.
+ *
+ * Returning zero means the entire batch was rejected because one selected row was
+ * missing, withdrawn by its author, or already in the requested state.
+ */
+function bulk_moderate_messages(
+    PDO $pdo,
+    array $messageIds,
+    string $newState,
+    string $reasonCode,
+    string $actorHash,
+    ?int $now = null
+): int {
+    $seenIds = [];
+    foreach ($messageIds as $messageId) {
+        if (!is_int($messageId) || $messageId < 1 || isset($seenIds[$messageId])) {
+            throw new InvalidArgumentException('Invalid bulk moderation transition');
+        }
+        $seenIds[$messageId] = true;
+    }
+    if ($messageIds === []
+        || count($messageIds) > 20
+        || !in_array($newState, bulk_moderation_states(), true)
+        || !in_array($reasonCode, moderation_reasons(), true)
+        || $reasonCode === 'restored'
+        || preg_match('/\A[0-9a-f]{64}\z/D', $actorHash) !== 1) {
+        throw new InvalidArgumentException('Invalid bulk moderation transition');
+    }
+    $now ??= time();
+
+    $pdo->exec('BEGIN IMMEDIATE');
+    try {
+        $placeholders = implode(', ', array_fill(0, count($messageIds), '?'));
+        $lookup = $pdo->prepare(
+            "SELECT id, status, featured_at, owner_withdrawn_at
+             FROM messages WHERE id IN ({$placeholders}) ORDER BY id"
+        );
+        foreach ($messageIds as $position => $messageId) {
+            $lookup->bindValue($position + 1, $messageId, PDO::PARAM_INT);
+        }
+        $lookup->execute();
+        $rows = $lookup->fetchAll(PDO::FETCH_ASSOC);
+        if (count($rows) !== count($messageIds)) {
+            $pdo->exec('ROLLBACK');
+            return 0;
+        }
+
+        $messagesById = [];
+        foreach ($rows as $message) {
+            $messagesById[(int) $message['id']] = $message;
+        }
+        foreach ($messageIds as $messageId) {
+            $message = $messagesById[$messageId] ?? null;
+            $previousState = $message['status'] ?? null;
+            if (!is_array($message)
+                || !is_string($previousState)
+                || !in_array($previousState, moderation_states(), true)
+                || $previousState === $newState
+                || $message['owner_withdrawn_at'] !== null) {
+                $pdo->exec('ROLLBACK');
+                return 0;
+            }
+        }
+
+        foreach ($messageIds as $messageId) {
+            $message = $messagesById[$messageId];
+            apply_moderation_transition(
+                $pdo,
+                $messageId,
+                $message,
+                $message['status'],
+                $newState,
+                $reasonCode,
+                $actorHash,
+                $now
+            );
+        }
+        $pdo->exec('COMMIT');
+        return count($messageIds);
     } catch (Throwable $e) {
         try {
             $pdo->exec('ROLLBACK');

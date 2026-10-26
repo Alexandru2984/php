@@ -193,6 +193,20 @@ check(positive_int_input(['page' => ['2']], 'page', 7) === 7, 'nested integer is
 check(id_input(['id' => '9223372036854775807'], 'id') === PHP_INT_MAX, '64-bit identifier is parsed');
 check(id_input(['id' => '0'], 'id') === null, 'zero identifier is rejected');
 check(
+    id_list_input(['ids' => ['7', '42']], 'ids') === [7, 42],
+    'identifier lists preserve explicit canonical selections'
+);
+check(
+    id_list_input(['ids' => ['7', '7']], 'ids') === null
+        && id_list_input(['ids' => ['7', ['8']]], 'ids') === null
+        && id_list_input(['ids' => '7'], 'ids') === null,
+    'identifier lists reject duplicates, nested values and scalar coercion'
+);
+check(
+    id_list_input(['ids' => array_fill(0, 21, '7')], 'ids') === null,
+    'identifier lists reject oversized batches before parsing values'
+);
+check(
     enum_input(['category' => 'privacy'], 'category', abuse_report_categories()) === 'privacy',
     'allowed enum input is accepted'
 );
@@ -827,6 +841,91 @@ try {
 }
 check($appendOnly, 'admin audit events cannot be deleted');
 
+$db->exec(
+    "INSERT INTO messages (author, content, status, featured_at, feature_changed_at)
+     VALUES ('Bulk public', 'first bulk fixture', 'published',
+             '1970-01-01 00:09:00', '1970-01-01 00:09:00'),
+            ('Bulk pending', 'second bulk fixture', 'pending', NULL, NULL)"
+);
+$bulkPendingId = (int) $db->lastInsertId();
+$bulkPublicId = $bulkPendingId - 1;
+check(
+    bulk_moderate_messages(
+        $db,
+        [$bulkPublicId, $bulkPendingId],
+        'hidden',
+        'policy',
+        $subject,
+        600
+    ) === 2,
+    'bulk moderation changes every selected message in one transaction'
+);
+check(
+    (int) $db->query(
+        "SELECT COUNT(*) FROM messages
+         WHERE id IN ({$bulkPublicId}, {$bulkPendingId})
+           AND status = 'hidden' AND moderation_reason = 'policy'
+           AND moderated_at = '1970-01-01 00:10:00' AND ip_hash IS NULL"
+    )->fetchColumn() === 2
+        && (int) $db->query(
+            "SELECT COUNT(*) FROM admin_audit_events
+             WHERE related_id IN ({$bulkPublicId}, {$bulkPendingId})
+               AND event_type = 'message.hide' AND outcome = 'success'"
+        )->fetchColumn() === 2
+        && (int) $db->query(
+            "SELECT COUNT(*) FROM admin_audit_events
+             WHERE related_id = {$bulkPublicId} AND event_type = 'message.unfeature'"
+        )->fetchColumn() === 1,
+    'bulk moderation applies privacy cleanup and per-message append-only audit'
+);
+$db->exec(
+    "INSERT INTO messages (author, content, status)
+     VALUES ('Bulk rollback', 'must remain public', 'published')"
+);
+$bulkRollbackId = (int) $db->lastInsertId();
+check(
+    bulk_moderate_messages(
+        $db,
+        [$bulkRollbackId, $bulkPublicId],
+        'hidden',
+        'policy',
+        $subject,
+        601
+    ) === 0
+        && $db->query(
+            "SELECT status FROM messages WHERE id = {$bulkRollbackId}"
+        )->fetchColumn() === 'published',
+    'one ineligible selection rolls back the complete bulk transition'
+);
+check(
+    bulk_moderate_messages(
+        $db,
+        [$bulkRollbackId, PHP_INT_MAX],
+        'spam',
+        'spam',
+        $subject,
+        602
+    ) === 0
+        && $db->query(
+            "SELECT status FROM messages WHERE id = {$bulkRollbackId}"
+        )->fetchColumn() === 'published',
+    'a missing selection prevents every bulk change'
+);
+$bulkPublicationRejected = false;
+try {
+    bulk_moderate_messages(
+        $db,
+        [$bulkRollbackId],
+        'published',
+        'restored',
+        $subject,
+        603
+    );
+} catch (InvalidArgumentException) {
+    $bulkPublicationRejected = true;
+}
+check($bulkPublicationRejected, 'bulk moderation cannot publish messages');
+
 $ownedSubmission = create_submission(
     $db,
     'Owner fixture',
@@ -889,6 +988,20 @@ check(
     !moderate_message($db, $ownedId, 'published', 'restored', $subject, 701)
         && !withdraw_owned_message($db, $ownedId, $ownedToken, 702),
     'withdrawn message cannot be restored or replayed through application helpers'
+);
+check(
+    bulk_moderate_messages(
+        $db,
+        [$bulkRollbackId, $ownedId],
+        'spam',
+        'policy',
+        $subject,
+        703
+    ) === 0
+        && $db->query(
+            "SELECT status FROM messages WHERE id = {$bulkRollbackId}"
+        )->fetchColumn() === 'published',
+    'an author-withdrawn selection rejects the complete bulk transition'
 );
 $directRestoreBlocked = false;
 try {

@@ -404,6 +404,23 @@ test('risk-queued duplicate is private, explained to admin and reversibly publis
     expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
   }
 
+  const queuedReview = page.locator('.moderation-item').filter({ hasText: 'Queued browser check' });
+  const bulkForm = page.locator('form[data-bulk-moderation]');
+  const bulkState = bulkForm.getByRole('combobox', { name: 'Move selected to' });
+  await expect(bulkState.locator('option[value="published"]')).toHaveCount(0);
+  await queuedReview.getByRole('checkbox', { name: /Select message #/ }).check();
+  await expect(bulkForm.getByText('1 message selected.')).toBeVisible();
+  await bulkState.selectOption('hidden');
+  await bulkForm.getByRole('combobox', { name: 'Reason' }).selectOption('risk');
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('all-or-nothing');
+    await dialog.accept();
+  });
+  await bulkForm.getByRole('button', { name: 'Apply to selected' }).click();
+  await expect(page.getByRole('status')).toContainText('1 message updated atomically');
+  await expect(page.locator('.moderation-item').filter({ hasText: 'Queued browser check' }))
+    .toContainText('hidden');
+
   page.once('dialog', async (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Feature message', exact: true }).first().click();
   await expect(page.getByRole('status')).toContainText('Featured message updated');

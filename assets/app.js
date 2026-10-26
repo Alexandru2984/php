@@ -196,7 +196,33 @@
         updatePreview();
     }
 
-    // ---- Delete confirmation --------------------------------------------
+    // ---- Bounded bulk moderation ----------------------------------------
+    var bulkModerationForm = document.querySelector('form[data-bulk-moderation]');
+    if (bulkModerationForm) {
+        var bulkSelections = document.querySelectorAll(
+            'input[data-bulk-select][form="bulk-moderation-form"]'
+        );
+        var bulkSelectionCount = bulkModerationForm.querySelector('[data-bulk-selection-count]');
+        var bulkSubmit = bulkModerationForm.querySelector('[data-bulk-submit]');
+        var updateBulkSelection = function () {
+            var selected = Array.prototype.filter.call(
+                bulkSelections,
+                function (checkbox) { return checkbox.checked; }
+            ).length;
+            if (bulkSelectionCount) {
+                bulkSelectionCount.textContent = selected + (selected === 1
+                    ? ' message selected.'
+                    : ' messages selected.');
+            }
+            if (bulkSubmit) bulkSubmit.disabled = selected === 0;
+        };
+        bulkSelections.forEach(function (checkbox) {
+            checkbox.addEventListener('change', updateBulkSelection);
+        });
+        updateBulkSelection();
+    }
+
+    // ---- Destructive-action confirmation --------------------------------
     document.querySelectorAll('form[data-confirm]').forEach(function (form) {
         form.addEventListener('submit', function (e) {
             if (!window.confirm(form.getAttribute('data-confirm'))) {

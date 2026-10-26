@@ -954,6 +954,41 @@ body {
     color: var(--text-faint);
     font-size: .72rem;
 }
+.bulk-moderation {
+    display: grid;
+    grid-template-columns: minmax(150px, 1fr) minmax(170px, 1fr) auto;
+    align-items: end;
+    gap: 10px;
+    padding: 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+}
+.bulk-moderation-copy { grid-column: 1 / -1; }
+.bulk-moderation-copy strong,
+.bulk-moderation-copy span { display: block; }
+.bulk-moderation-copy span {
+    margin-top: 3px;
+    color: var(--text-faint);
+    font-size: .72rem;
+    line-height: 1.5;
+}
+.bulk-moderation label > span {
+    display: block;
+    margin-bottom: 5px;
+    color: var(--text-faint);
+    font-size: .68rem;
+    font-weight: 750;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+}
+.bulk-moderation .select { min-height: 44px; }
+.bulk-moderation-submit {
+    display: grid;
+    justify-items: end;
+    gap: 4px;
+}
+.bulk-moderation-submit span { color: var(--text-faint); font-size: .72rem; }
+.bulk-moderation-submit .btn:disabled { cursor: not-allowed; opacity: .55; }
 .admin-pager {
     display: flex;
     align-items: center;
@@ -975,6 +1010,18 @@ body {
     gap: 12px;
 }
 .moderation-item span { color: var(--text-faint); font-size: .75rem; }
+.bulk-message-select {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 44px;
+    margin-left: auto;
+    padding: 0 4px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-weight: 700;
+}
+.bulk-message-select input { width: 18px; height: 18px; accent-color: var(--accent); }
 .moderation-item p {
     margin: 9px 0 12px;
     color: var(--text-muted);
@@ -1178,6 +1225,7 @@ body {
     .admin-form { flex-direction: column; }
     .admin-form .btn { width: 100%; }
     .moderation-item > div { align-items: flex-start; flex-direction: column; gap: 2px; }
+    .bulk-message-select { margin-left: 0; }
     .audit-list li { grid-template-columns: auto minmax(0, 1fr); }
     .audit-list li > span:not(.audit-outcome), .audit-list time { grid-column: 2; }
     .moderation-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1217,6 +1265,10 @@ body {
     }
     .header { align-items: flex-start; }
     .admin-filters { grid-template-columns: 1fr; }
+    .bulk-moderation { grid-template-columns: 1fr; }
+    .bulk-moderation-submit { justify-items: stretch; }
+    .bulk-moderation-submit span { text-align: left; }
+    .bulk-moderation-submit .btn { width: 100%; }
     .admin-filter-actions { justify-content: space-between; }
     .admin-pager { display: grid; grid-template-columns: 1fr 1fr; }
     .admin-pager .pager-info { grid-column: 1 / -1; grid-row: 1; text-align: center; }

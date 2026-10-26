@@ -68,7 +68,7 @@ incomplete.
 | S-09 | Medium | Database DDL runs on every web request and migration errors are swallowed. | `CREATE`/`ALTER`/index statements execute during bootstrap; every migration exception is treated as "column exists". Disk, permission and corruption errors can be hidden. | Move schema changes to versioned, transactional CLI migrations and keep web requests read/write-data only. |
 | S-10 | Medium | Cloudflare JavaScript Detection conflicts with CSP. | The live edge injects an inline challenge script while `script-src` disallows inline code. Browsers will block it, reducing bot signal quality. | Keep `unsafe-inline` forbidden. Use a per-response CSP nonce that Cloudflare can propagate, or intentionally disable injection for this hostname. |
 | S-11 | Medium | Core retention and self-service withdrawal are documented; full data-subject workflow remains. | The sessionless Privacy page distinguishes public/indexed content, live soft withdrawal, application retention, backups and third-party copies. Future posters get a private capability that can hide one message irreversibly from first-party public surfaces. A dedicated privacy contact, export/statutory-erasure/objection operations and key-rotation procedure are not complete. | Publish a controller contact and complete authenticated request handling and purge policy; record legal basis and test purpose-key rotation. |
-| S-12 | Low | Reversible moderation and audit are deployed; purge policy remains deferred. | Five states, controlled reasons, a report queue, atomic transitions and trigger-protected append-only audit remove immediate-deletion and repudiation risk. Moderator actions are reversible; author withdrawals are terminal and database-enforced. Permanent purge and bulk actions are intentionally absent. | Define purge authorization/retention before adding permanent deletion; keep public reports non-automatic. |
+| S-12 | Low | Reversible moderation and audit are deployed; purge policy remains deferred. | Five states, controlled reasons, a report queue, atomic individual/bulk transitions and trigger-protected append-only audit remove immediate-deletion and repudiation risk. Moderator actions are reversible; author withdrawals are terminal and database-enforced. Permanent purge remains intentionally absent. | Define purge authorization/retention before adding permanent deletion; keep public reports non-automatic. |
 | S-13 | Medium | Encrypted off-host redundancy is healthy; credential and recovery independence remain incomplete. | The post-ownership run age-encrypted 39 snapshots and verified all 39 at both R2 and Google Drive with zero differences. The health probe recovered automatically after the earlier Drive quota failure. Jobs never send plaintext or delete remote history. Rclone warns that the Drive remote still uses its retiring shared OAuth client; one recovery recipient, shared-scope provider credentials and the absence of a downloaded-artifact human drill remain failure modes. | Provision a dedicated least-privilege Google OAuth client before the shared client is retired; add a second offline recipient, restrict credentials per namespace, enforce documented remote retention and execute a quarterly downloaded-artifact drill. |
 | S-14 | Low | API v1 is stateless and cache-consistent; the legacy JSON shape remains temporarily. | `/api/v1/messages` creates no session/cookie, exposes published columns only, uses signed indexed cursors, strong ETags and explicit public cache semantics. The old query-format feed is private/no-store and marked deprecated. | Migrate remaining consumers, measure usage, then remove the legacy JSON format in a separately announced release. |
 | S-15 | Low | Analytics still receives bounded telemetry, but no longer expands the remote script trust boundary. | A reviewed Umami tracker copy is versioned locally and pinned by SHA-256 in tests and the live health probe. CSP removes the analytics origin from `script-src` while retaining only `connect-src`; the tracker remains domain-bound, DNT-aware and excludes query/hash. Backend compromise can disrupt or receive the documented aggregate payload but cannot replace executable page code. | Review upstream changes before deliberately replacing the local asset and pinned digest; document analytics retention/processor basis and alert on digest drift. |
@@ -83,6 +83,7 @@ incomplete.
 | S-24 | Medium | An owner capability can irreversibly hide one future message but is not a complete erasure channel. | A 256-bit capability is held in an HttpOnly, Secure-in-production, SameSite Strict cookie scoped to one private path; only its HMAC is stored. Withdrawal needs session and capability CSRF, destroys the token, clears temporary identifiers, is audited and cannot be republished. Theft of a valid browser cookie or full same-origin execution can still withdraw that one message, while backups and the soft-deleted text remain. | Run the owner-token abuse tabletop, publish the dedicated privacy contact and authenticated statutory-erasure procedure, and assess successful-withdrawal anomaly detection without collecting new identity data. |
 | S-25 | Low | The admin can now find the complete moderation set without exposing private discovery publicly. | Authenticated search/filter/sort/pagination replaces the fixed latest-30 view. Generated FTS terms, fixed SQL fragments, bounded pages and a minimal projection limit injection, load and identifier exposure. Admin responses are no-store/noindex, same-origin referrer only and analytics-free; anonymous `admin_*` parameters fail closed. A valid stolen session can still read non-public content without an automatic read anomaly alert. | Preserve the private response and minimal-projection contracts, consider privacy-safe read anomaly detection, and include private discovery in the credential-compromise tabletop. |
 | S-26 | Low | Operational aggregates improve moderator triage without creating a new telemetry stream, but generic exceptions are not proactive detection. | The authenticated workspace shows queue/report age, high-risk pending work, 24-hour failure/blocked groups and active throttles. Aggregation occurs before projection and excludes subject hashes, related identifiers, names and content. Specific login, withdrawal and backlog thresholds still alert; all other groups require an operator to open the workspace, so MTTD is unknown. | Preserve the identifier-free query contract, define evidence-based alert rules only where signal quality supports them, and exercise dashboard triage in the credential-compromise tabletop. |
+| S-27 | Low | Bounded bulk moderation reduces repetitive triage without adding a mass-publication or purge path. | An authenticated, same-origin, CSRF-protected request carries 1–20 unique canonical IDs. A locked preflight and one transaction make the batch all-or-nothing; owner-withdrawn or unchanged rows reject it. Only pending/hidden/spam/soft-delete targets exist, each changed row is append-only audited, and the aggregate security event carries no IDs. A stolen valid admin session can repeat bounded requests and suppress every eligible message before expiry. | Preserve the no-bulk-publish/no-purge boundary, review unexpected audit bursts, invalidate sessions on suspected compromise and complete a measured credential-takeover tabletop. |
 
 ## CISO review: moderation operational overview
 
@@ -473,6 +474,79 @@ the visitor's control.
 **Verdict:** 🟡 MITIGATE THEN SHIP. Technical publication controls are strong and the
 copy is deliberately honest; a dedicated private contact and complete data-subject
 workflow are required before calling privacy governance complete.
+
+## CISO review: bounded bulk moderation
+
+**Date:** 2026-10-26
+
+**Verdict:** 🟡 MITIGATE THEN SHIP — the shipped control is bounded, atomic,
+reversible and attributable, but clean misuse through a stolen valid admin session
+has no dedicated alert and the credential-compromise exercise remains outstanding.
+
+### 1. Threat model (STRIDE top three)
+
+1. **Elevation/tampering (low likelihood, high impact):** a stolen valid admin
+   session could suppress multiple public messages. Same-origin CSRF-protected POST,
+   expiring sessions, canonical unique IDs, a maximum of 20 selections per request,
+   reversible states and per-message audit contain the path. Bulk publication and
+   permanent purge are absent, but an attacker can repeat requests until containment.
+2. **Repudiation/integrity (low likelihood, high impact):** a partial batch or a
+   single aggregate record could obscure exactly what changed. `BEGIN IMMEDIATE`
+   locks the preflight and writes; every selected row is validated before the first
+   update, any mismatch rolls back the batch, and every successful message receives
+   its normal append-only transition event with actor, old/new state, reason and time.
+3. **Denial of service (low likelihood, medium impact):** repeated authenticated
+   batches could hold SQLite's write lock or create review churn. Each request is
+   limited to 20 rows and fixed prepared operations, the admin session is time-bounded,
+   and ordinary busy/health monitoring remains in place. There is no per-session bulk
+   rate limit because current legitimate volume is very small; this should be revisited
+   if usage or contention evidence changes.
+
+### 2. Blast radius and annual-loss input
+
+One request can change at most 20 explicitly named, non-withdrawn messages to pending,
+hidden, spam or soft-deleted. Repeated requests under a compromised session can
+eventually suppress every eligible guestbook message; the per-request cap is not
+represented as a total-loss boundary. The path cannot publish, permanently purge,
+change author-withdrawn records, alter code/configuration, read secrets or affect
+another service. Production contained three message records at review time. No FAIR
+annual-loss value is invented without credential-compromise frequency, moderation
+recovery labour, downtime/reputation cost and affected-person/legal inputs.
+
+### 3. Detection and MTTD
+
+CI detects authorization, malformed-list, atomicity, audit, no-bulk-publication,
+confirmation, mobile overflow and accessibility regressions before release. Runtime
+success produces one identifier-free `message.bulk_moderate` security event plus the
+append-only event for every changed message; failures and blocks enter the private
+24-hour operations summary. There is no dedicated Telegram threshold for successful
+bulk activity, so clean use of a stolen valid session may only be noticed during audit
+review or content observation. Its honest MTTD is unknown.
+
+### 4. Response, runbook and exercise
+
+On suspected misuse, follow the incident-response runbook: invalidate all admin
+sessions, rotate the credential as warranted, preserve the audit/database/journal
+evidence, identify the exact transitions, and restore intended states through audited
+moderation. Rolling the application release back does not reverse data already
+moderated. The automated suite rehearses full rollback on an invalid batch; a human
+credential-takeover exercise that measures detection and restoration time is not yet
+recorded and prevents a green verdict.
+
+### 5. Regulatory window
+
+Author names and message text can be personal data, and unauthorized suppression or
+access requires a documented integrity/confidentiality breach assessment. If an
+incident meets GDPR notification criteria, the supervisory-authority window remains
+up to 72 hours from awareness; operator/legal assessment determines applicability and
+any communication to affected people. Soft moderation is not statutory erasure.
+
+### 6. Vendors and supply chain
+
+The feature adds no migration, package, cookie, credential, subprocess, external API,
+vendor or processor. It reuses first-party PHP, JavaScript and SQLite. Cloudflare and
+the VPS retain their existing request/hosting roles; self-hosted analytics is absent
+from admin views, and Telegram receives no new bulk payload or message identifier.
 
 ## Controls verified
 

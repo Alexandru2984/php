@@ -29,7 +29,8 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 - Privacy-minimal abuse reporting with a rate-limited admin review queue.
 - Explainable anti-abuse scoring that queues risky submissions for reversible human
   review without exposing them in public HTML, search, feeds or API responses.
-- Five-state moderation, reversible actions and an append-only admin audit trail.
+- Five-state moderation, reversible individual actions, atomic suppression/re-queue
+  batches of up to 20 explicit selections and an append-only per-message admin audit.
 - Responsive admin workspace with indexed review filters, queue-age/risk statistics,
   privacy-minimal suspicious-activity aggregates, controlled reasons and audit events.
 - Read-only JSON API: `/?format=json` (supports `q` and `page`).

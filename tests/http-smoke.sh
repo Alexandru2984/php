@@ -620,6 +620,22 @@ unauthorised_feature_code="$(request_code \
     "SELECT COUNT(*) FROM security_events
      WHERE event_type = 'message.feature' AND outcome = 'blocked';")" == 1 ]]
 
+unauthorised_bulk_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${report_csrf}" \
+    --data-urlencode 'action=bulk_moderate' \
+    --data-urlencode "message_ids[]=${message_id}" \
+    --data-urlencode 'status=hidden' \
+    --data-urlencode 'reason=policy' \
+    "${APP_ORIGIN}/")"
+[[ "${unauthorised_bulk_code}" == 303 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT status FROM messages WHERE id = ${message_id};")" == published ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT COUNT(*) FROM security_events
+     WHERE event_type = 'message.bulk_moderate' AND outcome = 'blocked';")" == 1 ]]
+
 legacy_rss_headers="$(curl --silent --show-error --head "${APP_ORIGIN}/?format=rss")"
 grep --ignore-case --quiet '^HTTP/1.1 301' <<<"${legacy_rss_headers}"
 grep --ignore-case --quiet '^Location: /feed.xml' <<<"${legacy_rss_headers}"
@@ -694,7 +710,7 @@ grep --quiet 'Recent duplicate' <<<"${admin_html}"
 grep --fixed-strings --quiet 'Operational overview' <<<"${admin_html}"
 grep --fixed-strings --quiet 'High-risk pending' <<<"${admin_html}"
 grep --fixed-strings --quiet 'Security exceptions' <<<"${admin_html}"
-grep --fixed-strings --quiet 'Suspicious activity · 2 exceptions · 1 active throttle' <<<"${admin_html}"
+grep --fixed-strings --quiet 'Suspicious activity · 3 exceptions · 1 active throttle' <<<"${admin_html}"
 grep --fixed-strings --quiet 'This summary uses rolling 24-hour aggregates and shows up to 20 groups per list.' <<<"${admin_html}"
 grep --fixed-strings --quiet '<code>admin.login</code>' <<<"${admin_html}"
 grep --fixed-strings --quiet '<strong>1</strong>' <<<"${admin_html}"
@@ -706,6 +722,8 @@ grep --fixed-strings --quiet '<title>Admin workspace · Micuțu Guestbook</title
 grep --fixed-strings --quiet '<meta name="robots" content="noindex, nofollow, noarchive">' <<<"${admin_html}"
 grep --fixed-strings --quiet 'aria-label="Filter moderation workspace"' <<<"${admin_html}"
 grep --fixed-strings --quiet 'Search stays on this server and analytics is disabled for authenticated admin views.' <<<"${admin_html}"
+grep --fixed-strings --quiet 'id="bulk-moderation-form"' <<<"${admin_html}"
+grep --fixed-strings --quiet 'Publication stays individual; the whole batch fails if any selection is ineligible or already in the target state.' <<<"${admin_html}"
 grep --ignore-case --quiet '^Cache-Control: private, no-store, max-age=0' "${admin_headers}"
 grep --ignore-case --quiet '^X-Robots-Tag: noindex, nofollow, noarchive' "${admin_headers}"
 grep --ignore-case --quiet '^Referrer-Policy: same-origin' "${admin_headers}"
@@ -744,6 +762,77 @@ fi
 
 admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
 [[ "${admin_csrf}" =~ ^[0-9a-f]{64}$ && "${admin_csrf}" != "${login_csrf}" ]]
+sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "INSERT INTO messages (author, content, status)
+     VALUES ('Bulk smoke one', 'first atomic HTTP fixture', 'pending'),
+            ('Bulk smoke two', 'second atomic HTTP fixture', 'pending');"
+bulk_second_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT id FROM messages WHERE author = 'Bulk smoke two';")"
+bulk_first_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT id FROM messages WHERE author = 'Bulk smoke one';")"
+[[ "${bulk_first_id}" =~ ^[1-9][0-9]*$ && "${bulk_second_id}" =~ ^[1-9][0-9]*$ ]]
+
+malformed_bulk_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${admin_csrf}" \
+    --data-urlencode 'action=bulk_moderate' \
+    --data-urlencode "message_ids=${bulk_first_id}" \
+    --data-urlencode 'status=hidden' \
+    --data-urlencode 'reason=policy' \
+    "${APP_ORIGIN}/")"
+[[ "${malformed_bulk_code}" == 303 ]]
+duplicate_bulk_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${admin_csrf}" \
+    --data-urlencode 'action=bulk_moderate' \
+    --data-urlencode "message_ids[]=${bulk_first_id}" \
+    --data-urlencode "message_ids[]=${bulk_first_id}" \
+    --data-urlencode 'status=hidden' \
+    --data-urlencode 'reason=policy' \
+    "${APP_ORIGIN}/")"
+[[ "${duplicate_bulk_code}" == 303 ]]
+bulk_publish_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${admin_csrf}" \
+    --data-urlencode 'action=bulk_moderate' \
+    --data-urlencode "message_ids[]=${bulk_first_id}" \
+    --data-urlencode 'status=published' \
+    --data-urlencode 'reason=restored' \
+    "${APP_ORIGIN}/")"
+[[ "${bulk_publish_code}" == 303 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT group_concat(status, ':') FROM messages
+     WHERE id IN (${bulk_first_id}, ${bulk_second_id}) ORDER BY id;")" == pending:pending ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT COUNT(*) FROM security_events
+     WHERE event_type = 'message.bulk_moderate' AND outcome = 'failure';")" == 3 ]]
+
+valid_bulk_code="$(request_code \
+    --cookie "${cookie_jar}" \
+    --header "Origin: ${APP_ORIGIN}" \
+    --data-urlencode "csrf=${admin_csrf}" \
+    --data-urlencode 'action=bulk_moderate' \
+    --data-urlencode "message_ids[]=${bulk_first_id}" \
+    --data-urlencode "message_ids[]=${bulk_second_id}" \
+    --data-urlencode 'status=hidden' \
+    --data-urlencode 'reason=risk' \
+    "${APP_ORIGIN}/")"
+[[ "${valid_bulk_code}" == 303 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT group_concat(status || ':' || moderation_reason, '|') FROM messages
+     WHERE id IN (${bulk_first_id}, ${bulk_second_id}) ORDER BY id;")" == hidden:risk\|hidden:risk ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT COUNT(*) FROM admin_audit_events
+     WHERE related_id IN (${bulk_first_id}, ${bulk_second_id})
+       AND event_type = 'message.hide' AND reason_code = 'risk';")" == 2 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT COUNT(*) FROM security_events
+     WHERE event_type = 'message.bulk_moderate' AND outcome = 'success'
+       AND related_id IS NULL;")" == 1 ]]
+
 feature_code="$(request_code \
     --cookie "${cookie_jar}" \
     --header "Origin: ${APP_ORIGIN}" \
@@ -778,7 +867,7 @@ hide_code="$(request_code \
     "${APP_ORIGIN}/")"
 [[ "${hide_code}" == 303 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status || ':' || moderation_reason || ':' || (ip_hash IS NULL) || ':' || (featured_at IS NULL) FROM messages WHERE id = ${message_id};")" == hidden:privacy:1:1 ]]
-[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT previous_state || ':' || new_state || ':' || reason_code FROM admin_audit_events WHERE event_type = 'message.hide';")" == published:hidden:privacy ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT previous_state || ':' || new_state || ':' || reason_code FROM admin_audit_events WHERE event_type = 'message.hide' AND related_id = ${message_id};")" == published:hidden:privacy ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
     "SELECT COUNT(*) FROM admin_audit_events
      WHERE event_type = 'message.unfeature' AND related_id = ${message_id};")" == 1 ]]
@@ -806,7 +895,7 @@ fi
 
 admin_html="$(curl --silent --show-error --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
 admin_csrf="$(sed -n 's/.*name="csrf" value="\([0-9a-f]\{64\}\)".*/\1/p' <<<"${admin_html}" | head -n 1)"
-grep --fixed-strings --quiet 'Review messages · 2 matches' <<<"${admin_html}"
+grep --fixed-strings --quiet 'Review messages · 4 matches' <<<"${admin_html}"
 report_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT id FROM abuse_reports WHERE status = 'open';")"
 review_code="$(request_code \
     --cookie "${cookie_jar}" \
@@ -835,7 +924,7 @@ restore_code="$(request_code \
     "SELECT status || ':' || (featured_at IS NULL)
      FROM messages WHERE id = ${message_id};")" == published:1 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT status || ':' || moderation_reason FROM messages WHERE id = ${message_id};")" == published:restored ]]
-[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM admin_audit_events;")" == 6 ]]
+[[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM admin_audit_events;")" == 8 ]]
 
 manage_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-jar "${cookie_jar}" \
     "${APP_ORIGIN}${manage_path}")"

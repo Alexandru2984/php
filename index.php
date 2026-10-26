@@ -442,6 +442,48 @@ if ($method === 'POST') {
         redirect('/');
     }
 
+    if ($action === 'bulk_moderate') {
+        $adminSubject = client_ip_hash('admin-action');
+        if (empty($_SESSION['is_admin'])) {
+            security_event($pdo, 'message.bulk_moderate', 'blocked', $adminSubject);
+            flash_set('error', 'Not authorised.');
+            redirect('/');
+        }
+
+        $ids = id_list_input($_POST, 'message_ids', 20);
+        $newState = enum_input($_POST, 'status', bulk_moderation_states());
+        $reason = enum_input(
+            $_POST,
+            'reason',
+            array_values(array_diff(moderation_reasons(), ['restored']))
+        );
+        if ($ids === null || $newState === null || $reason === null) {
+            security_event($pdo, 'message.bulk_moderate', 'failure', $adminSubject);
+            flash_set('error', 'Invalid bulk moderation request. No messages were changed.');
+            redirect('/');
+        }
+
+        $changed = bulk_moderate_messages(
+            $pdo,
+            $ids,
+            $newState,
+            $reason,
+            admin_actor_hash()
+        );
+        security_event(
+            $pdo,
+            'message.bulk_moderate',
+            $changed > 0 ? 'success' : 'failure',
+            $adminSubject
+        );
+        flash_set($changed > 0 ? 'success' : 'error', $changed > 0
+            ? $changed . ($changed === 1
+                ? ' message updated atomically.'
+                : ' messages updated atomically.')
+            : 'The batch was not applied. Check that every selected message is eligible and changing state.');
+        redirect('/');
+    }
+
     if (in_array($action, ['moderate', 'delete', 'restore'], true)) {
         $adminSubject = client_ip_hash('admin-action');
         if (empty($_SESSION['is_admin'])) {
@@ -1566,6 +1608,48 @@ $reportLabels = [
                     Search stays on this server and analytics is disabled for authenticated admin views.
                 </p>
                 <?php if ($moderatedMessages): ?>
+                    <?php
+                        $bulkEligibleCount = count(array_filter(
+                            $moderatedMessages,
+                            static fn(array $message): bool => $message['owner_withdrawn_at'] === null
+                        ));
+                    ?>
+                    <?php if ($bulkEligibleCount > 0): ?>
+                    <form id="bulk-moderation-form" class="bulk-moderation" method="POST"
+                          data-bulk-moderation
+                          data-confirm="Apply this state to every selected message? The batch is all-or-nothing.">
+                        <?php echo csrf_field(); ?>
+                        <input type="hidden" name="action" value="bulk_moderate">
+                        <div class="bulk-moderation-copy">
+                            <strong>Bulk moderation</strong>
+                            <span>Select up to 20 eligible messages. Publication stays individual; the whole batch fails if any selection is ineligible or already in the target state.</span>
+                        </div>
+                        <label for="bulk-moderation-status">
+                            <span>Move selected to</span>
+                            <select class="select" id="bulk-moderation-status" name="status" required>
+                                <option value="" selected disabled>Choose state</option>
+                                <?php foreach (bulk_moderation_states() as $value): ?>
+                                <option value="<?php echo e($value); ?>"><?php echo e($statusLabels[$value]); ?></option>
+                                <?php endforeach; ?>
+                            </select>
+                        </label>
+                        <label for="bulk-moderation-reason">
+                            <span>Reason</span>
+                            <select class="select" id="bulk-moderation-reason" name="reason" required>
+                                <option value="" selected disabled>Choose reason</option>
+                                <?php foreach ($reasonLabels as $value => $label): ?>
+                                    <?php if ($value !== 'restored'): ?>
+                                <option value="<?php echo e($value); ?>"><?php echo e($label); ?></option>
+                                    <?php endif; ?>
+                                <?php endforeach; ?>
+                            </select>
+                        </label>
+                        <div class="bulk-moderation-submit">
+                            <span data-bulk-selection-count aria-live="polite">0 messages selected.</span>
+                            <button class="btn secondary compact" type="submit" data-bulk-submit>Apply to selected</button>
+                        </div>
+                    </form>
+                    <?php endif; ?>
                     <div class="moderation-list">
                     <?php foreach ($moderatedMessages as $moderated): ?>
                         <article class="moderation-item">
@@ -1575,6 +1659,15 @@ $reportLabels = [
                                     <span class="status-pill status-<?php echo e($moderated['status']); ?>"><?php echo e($moderated['status']); ?></span>
                                     <?php echo e($reasonLabels[$moderated['moderation_reason']] ?? 'Unspecified'); ?>
                                 </span>
+                                <?php if ($moderated['owner_withdrawn_at'] === null): ?>
+                                <label class="bulk-message-select" for="bulk-message-<?php echo (int) $moderated['id']; ?>">
+                                    <input id="bulk-message-<?php echo (int) $moderated['id']; ?>" type="checkbox"
+                                           name="message_ids[]" value="<?php echo (int) $moderated['id']; ?>"
+                                           form="bulk-moderation-form" data-bulk-select
+                                           aria-label="Select message #<?php echo (int) $moderated['id']; ?>">
+                                    <span>Select</span>
+                                </label>
+                                <?php endif; ?>
                             </div>
                             <p><?php echo e($moderated['content']); ?></p>
                             <?php if ((int) $moderated['risk_score'] > 0): ?>

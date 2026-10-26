@@ -86,6 +86,13 @@ cannot publish hidden content through this action.
   explainable risk in ten-row pages. Input and SQL fragments are allow-listed, the
   projection excludes hashes and capability material, and out-of-range pages fail
   closed.
+- An admin can explicitly select up to 20 eligible rows and atomically move all of
+  them to pending, hidden, spam or soft-deleted with one controlled reason. Every row
+  is preflighted before the first write; a missing ID, duplicate, unchanged target or
+  author-withdrawn row rejects the whole batch. Publication is deliberately excluded
+  from bulk actions and remains an individual decision. Each successful row receives
+  its normal append-only audit event, while one identifier-free security event records
+  the overall attempt.
 - Every authenticated admin response is private/no-store and
   noindex/nofollow/noarchive, uses a same-origin referrer policy and omits analytics.
   Anonymous requests containing admin discovery parameters return `400`.
@@ -163,11 +170,11 @@ remains self-hosted.
 ## Verification and rollback
 
 Unit tests prove state transitions, identifier detachment, report lifecycle,
-retention, risk scoring, private search bounds, identifier-free operational
-aggregates and append-only triggers. HTTP and browser tests exercise the
-anonymous-to-admin flow, filters, activity summaries and pagination through real
-cookies, CSRF and redirects. The health smoke test proves backlog alert generation
-without using production data.
+retention, risk scoring, private search bounds, atomic bulk rollback, identifier-free
+operational aggregates and append-only triggers. HTTP and browser tests exercise the
+anonymous-to-admin flow, filters, bounded explicit selection, confirmations, activity
+summaries and pagination through real cookies, CSRF and redirects. The health smoke
+test proves backlog alert generation without using production data.
 
 Migrations `004_moderation_audit.sql`, `006_submission_risk.sql`,
 `007_featured_message.sql` and `008_message_ownership.sql` only add columns, tables,
