@@ -469,6 +469,89 @@ foreach ([
 }
 check($invalidAdminReviewRejected === 4, 'admin review rejects invalid filters and pages');
 
+$operationsNow = 1_800_000_000;
+$snapshotSubjectA = str_repeat('b', 64);
+$snapshotSubjectB = str_repeat('c', 64);
+$seoDb->exec("UPDATE messages SET risk_score = 55 WHERE status = 'pending'");
+$snapshotReport = $seoDb->prepare(
+    "INSERT INTO abuse_reports (message_id, category, status, created_at)
+     VALUES (1, 'privacy', 'open', :created)"
+);
+$snapshotReport->execute([':created' => $operationsNow - 7200]);
+$snapshotEvent = $seoDb->prepare(
+    "INSERT INTO security_events
+        (event_type, outcome, subject_hash, related_id, created_at)
+     VALUES (:event, :outcome, :subject, :related, :created)"
+);
+foreach ([
+    ['admin.login', 'failure', $snapshotSubjectA, null, $operationsNow - 300],
+    ['message.owner_remove', 'blocked', $snapshotSubjectB, 2, $operationsNow - 400],
+    ['abuse.report', 'success', null, 1, $operationsNow - 200],
+    ['admin.login', 'failure', $snapshotSubjectA, null, $operationsNow - 90000],
+    ['admin.login', 'failure', $snapshotSubjectA, null, $operationsNow + 1],
+] as [$eventType, $outcome, $eventSubject, $relatedId, $createdAt]) {
+    $snapshotEvent->execute([
+        ':event' => $eventType,
+        ':outcome' => $outcome,
+        ':subject' => $eventSubject,
+        ':related' => $relatedId,
+        ':created' => $createdAt,
+    ]);
+}
+$snapshotLimit = $seoDb->prepare(
+    "INSERT INTO rate_limits
+        (scope, subject_hash, window_started_at, attempts, penalty_level,
+         blocked_until, updated_at)
+     VALUES (:scope, :subject, :window, 5, 1, :blocked, :updated)"
+);
+$snapshotLimit->execute([
+    ':scope' => 'admin-login',
+    ':subject' => $snapshotSubjectA,
+    ':window' => $operationsNow - 600,
+    ':blocked' => $operationsNow + 600,
+    ':updated' => $operationsNow - 60,
+]);
+$snapshotLimit->execute([
+    ':scope' => 'message-owner-remove',
+    ':subject' => $snapshotSubjectB,
+    ':window' => $operationsNow - 1200,
+    ':blocked' => $operationsNow - 1,
+    ':updated' => $operationsNow - 900,
+]);
+$operationsSnapshot = admin_operations_snapshot($seoDb, $operationsNow);
+check(
+    $operationsSnapshot['pending_total'] === 1
+        && $operationsSnapshot['high_risk_pending'] === 1
+        && $operationsSnapshot['oldest_pending_at'] === '2026-10-23 09:00:00'
+        && $operationsSnapshot['open_reports'] === 1
+        && $operationsSnapshot['oldest_report_at'] === $operationsNow - 7200,
+    'admin operations snapshot aggregates queue and report health'
+);
+check(
+    $operationsSnapshot['security_exception_total'] === 2
+        && count($operationsSnapshot['security_activity']) === 2
+        && array_column($operationsSnapshot['security_activity'], 'event_type')
+            === ['admin.login', 'message.owner_remove'],
+    'admin operations snapshot bounds security exceptions to failures in the past 24 hours'
+);
+$operationsJson = json_encode($operationsSnapshot, JSON_THROW_ON_ERROR);
+check(
+    $operationsSnapshot['active_throttle_total'] === 1
+        && $operationsSnapshot['active_throttles']
+            === [['scope' => 'admin-login', 'total' => 1]]
+        && !str_contains($operationsJson, $snapshotSubjectA)
+        && !str_contains($operationsJson, $snapshotSubjectB)
+        && !str_contains($operationsJson, 'related_id'),
+    'admin operations snapshot aggregates throttles without projecting identifiers'
+);
+$invalidOperationsTimeRejected = false;
+try {
+    admin_operations_snapshot($seoDb, -1);
+} catch (InvalidArgumentException) {
+    $invalidOperationsTimeRejected = true;
+}
+check($invalidOperationsTimeRejected, 'admin operations snapshot rejects an invalid clock');
+
 $subject = hash('sha256', 'test-subject');
 for ($attempt = 1; $attempt <= 4; $attempt++) {
     check(

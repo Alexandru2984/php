@@ -30,7 +30,8 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 - Explainable anti-abuse scoring that queues risky submissions for reversible human
   review without exposing them in public HTML, search, feeds or API responses.
 - Five-state moderation, reversible actions and an append-only admin audit trail.
-- Responsive admin workspace with status totals, controlled reasons and security events.
+- Responsive admin workspace with indexed review filters, queue-age/risk statistics,
+  privacy-minimal suspicious-activity aggregates, controlled reasons and audit events.
 - Read-only JSON API: `/?format=json` (supports `q` and `page`).
 - Privacy minimisation that detaches abuse-prevention identifiers after 24 hours;
   analytics is opt-in through configuration and its reviewed tracker is served from

@@ -38,6 +38,20 @@ The guestbook probe checks:
   the runtime identity;
 - storage filesystem use below 90 percent.
 
+## Authenticated operational overview
+
+The private admin workspace complements, but does not replace, the pager. It shows
+high-risk and oldest pending work, oldest open-report age, failure/blocked security
+events grouped over a fixed rolling 24-hour window, and currently active throttle
+counts grouped by scope. Aggregation happens in SQLite and projects no subject hash,
+related message identifier, author or content. The response inherits the admin
+workspace's no-store/noindex/referrer and analytics-exclusion controls.
+
+Specific configured thresholds below still alert automatically. Other grouped
+exceptions have no new notification rule: their MTTD is the next authenticated human
+review and is therefore unknown. The overview is not an immutable evidence source;
+use journald and the append-only admin audit during incident response.
+
 ## Alert thresholds and MTTD
 
 | Signal | Threshold | Detection target |

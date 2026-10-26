@@ -89,6 +89,14 @@ cannot publish hidden content through this action.
 - Every authenticated admin response is private/no-store and
   noindex/nofollow/noarchive, uses a same-origin referrer policy and omits analytics.
   Anonymous requests containing admin discovery parameters return `400`.
+- The operational overview shows queue/report age, threshold-level pending counts,
+  failure/blocked event groups from the last 24 hours and currently active throttle
+  scopes. SQLite aggregates security and limiter rows before projection: the helper
+  never selects subject hashes, related message identifiers, names or content.
+- This overview is triage visibility, not a replacement for alerting or evidence.
+  Existing threshold breaches still page through the five-minute health path;
+  generic aggregate exceptions are visible only when an authenticated admin opens
+  the workspace. Journald and the append-only admin audit remain the incident records.
 - Admin privilege expires after 30 idle minutes or 12 total hours. Strict session mode
   rejects unknown client-selected IDs; login, expiry and logout destroy the old ID,
   active sessions receive a new ID every 15 minutes, and privilege transitions rotate
@@ -155,10 +163,11 @@ remains self-hosted.
 ## Verification and rollback
 
 Unit tests prove state transitions, identifier detachment, report lifecycle,
-retention, risk scoring, private search bounds and append-only triggers. HTTP and
-browser tests exercise the anonymous-to-admin flow, filters and pagination through
-real cookies, CSRF and redirects. The health smoke test proves backlog alert
-generation without using production data.
+retention, risk scoring, private search bounds, identifier-free operational
+aggregates and append-only triggers. HTTP and browser tests exercise the
+anonymous-to-admin flow, filters, activity summaries and pagination through real
+cookies, CSRF and redirects. The health smoke test proves backlog alert generation
+without using production data.
 
 Migrations `004_moderation_audit.sql`, `006_submission_risk.sql`,
 `007_featured_message.sql` and `008_message_ownership.sql` only add columns, tables,

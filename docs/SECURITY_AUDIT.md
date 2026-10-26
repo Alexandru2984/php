@@ -13,7 +13,8 @@ Unix/FPM identity, fail-closed configuration, persistent throttling and an atomi
 cutover. The production database remained at three messages and passed integrity
 checks before and after migration. Detection, a privacy disclosure, reversible
 moderation, category-only abuse reporting, explainable submission-risk review, an
-indexed private moderation workspace, public indexed search, a sessionless central
+indexed private moderation workspace with privacy-minimal operational aggregates,
+public indexed search, a sessionless central
 calendar archive, private author withdrawal and an incident-response runbook are now
 deployed. R2 and Google Drive both hold verified encrypted backups; the Drive remote
 still needs its own OAuth client before rclone retires the shared client. Real-browser Axe, reflow and keyboard checks now gate
@@ -42,7 +43,7 @@ incomplete.
   sandboxed service identity. Daily jobs and the weekly restore timer are enabled;
   restored disposable backups pass integrity, foreign-key, migration and schema
   checks. The restore unit's systemd exposure score was `0.8 SAFE` at rollout.
-- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 146 unit
+- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 150 unit
   tests, HTTP/FTS integration, moderation lifecycle, health alerting and compressed
   backup/restore rejection tests. A separate Chromium job checks five viewport widths,
   primary 44px touch targets, keyboard focus, nine post/search/moderation/owner flows,
@@ -81,6 +82,74 @@ incomplete.
 | S-23 | Low | Featured-message curation adds an admin-controlled ranking signal. | A stolen admin session could promote one already-public message, but cannot feature moderated content. Same-origin CSRF-protected POST, an expiring admin session, a one-row database constraint, append-only feature/unfeature audit and automatic clearing on moderation bound the impact. | Monitor unexpected feature audit events, rotate the admin credential/session on compromise and retain the one-message/public-only invariant. |
 | S-24 | Medium | An owner capability can irreversibly hide one future message but is not a complete erasure channel. | A 256-bit capability is held in an HttpOnly, Secure-in-production, SameSite Strict cookie scoped to one private path; only its HMAC is stored. Withdrawal needs session and capability CSRF, destroys the token, clears temporary identifiers, is audited and cannot be republished. Theft of a valid browser cookie or full same-origin execution can still withdraw that one message, while backups and the soft-deleted text remain. | Run the owner-token abuse tabletop, publish the dedicated privacy contact and authenticated statutory-erasure procedure, and assess successful-withdrawal anomaly detection without collecting new identity data. |
 | S-25 | Low | The admin can now find the complete moderation set without exposing private discovery publicly. | Authenticated search/filter/sort/pagination replaces the fixed latest-30 view. Generated FTS terms, fixed SQL fragments, bounded pages and a minimal projection limit injection, load and identifier exposure. Admin responses are no-store/noindex, same-origin referrer only and analytics-free; anonymous `admin_*` parameters fail closed. A valid stolen session can still read non-public content without an automatic read anomaly alert. | Preserve the private response and minimal-projection contracts, consider privacy-safe read anomaly detection, and include private discovery in the credential-compromise tabletop. |
+| S-26 | Low | Operational aggregates improve moderator triage without creating a new telemetry stream, but generic exceptions are not proactive detection. | The authenticated workspace shows queue/report age, high-risk pending work, 24-hour failure/blocked groups and active throttles. Aggregation occurs before projection and excludes subject hashes, related identifiers, names and content. Specific login, withdrawal and backlog thresholds still alert; all other groups require an operator to open the workspace, so MTTD is unknown. | Preserve the identifier-free query contract, define evidence-based alert rules only where signal quality supports them, and exercise dashboard triage in the credential-compromise tabletop. |
+
+## CISO review: moderation operational overview
+
+**Date:** 2026-10-26
+
+**Verdict:** 🟡 MITIGATE THEN SHIP — the read-only view materially improves private
+triage and adds no data flow, but it must not be mistaken for proactive detection or
+an immutable incident record.
+
+### 1. Threat model (STRIDE top three)
+
+1. **Information disclosure (low likelihood, high impact):** an implementation that
+   projected limiter or event rows could expose stable keyed subject identifiers or
+   connect activity to a message. Dedicated aggregate queries select only fixed event
+   type/outcome, scope, count and time fields; tests inject hashes and related IDs and
+   prove they never leave the helper or rendered HTML. The existing authenticated,
+   no-store/noindex, same-origin-referrer and analytics-free boundary remains intact.
+2. **Denial of service (medium likelihood, medium impact):** an attacker can generate
+   noisy failure groups or make the admin page repeatedly aggregate retained rows.
+   The view uses a fixed 24-hour window, two bounded 20-group queries, existing
+   seven/90-day retention and authenticated access. Rate limits and existing health
+   thresholds constrain the highest-value abuse paths, but distributed noise remains.
+3. **Tampering/repudiation (low likelihood, medium impact):** a snapshot can be
+   misread as complete evidence, while `security_events` is retention-pruned and not
+   trigger-immutable. The UI and monitoring documentation explicitly classify it as
+   triage; journald and append-only admin audit remain the response records.
+
+### 2. Blast radius and annual-loss input
+
+Compromise of this view alone reveals queue/report counts and age, fixed security
+event names/outcomes/counts/last-seen times, and throttle scope/counts. It does not
+reveal subject hashes, raw addresses, names, content, related message IDs, capability
+digests, secrets or a new dataset. A stolen admin session already has broader access
+to all guestbook messages; production contains three records at review time. No FAIR
+ALE is invented without attack frequency, review/response labour, downtime value,
+notification population/cost and legal-cost inputs.
+
+### 3. Detection and MTTD
+
+Existing admin-login, invalid-withdrawal and queue/report thresholds page on the next
+five-minute health cycle. CI detects projection regressions, window-boundary errors,
+future/old/success event inclusion, rendered hash leakage, mobile overflow and Axe
+issues before release. Other grouped exceptions create no new alert and become
+visible only on authenticated review, so their honest MTTD is unknown.
+
+### 4. Response, runbook and exercise
+
+The incident-response runbook covers session invalidation, credential rotation,
+evidence preservation, journal/audit review, rollback and notification assessment.
+The automated suite rehearses the dashboard with mixed event classes and active or
+expired throttles. A human credential-compromise exercise using this triage view has
+not been recorded; that operational gap prevents a green verdict.
+
+### 5. Regulatory window
+
+The aggregate view is designed not to receive personal data, but the underlying
+security tables contain keyed online identifiers and the broader admin workspace can
+show names/content. Suspected unauthorized access still requires breach assessment;
+a qualifying GDPR incident retains the supervisory-authority notification window of
+up to 72 hours. Jurisdiction-specific obligations require operator/legal assessment.
+
+### 6. Vendors and supply chain
+
+No package, migration, API, cookie, credential, vendor, processor or outbound request
+is added. The feature reuses first-party PHP and SQLite. Existing Cloudflare, VPS,
+self-hosted analytics and Telegram boundaries do not change; analytics and Telegram
+receive none of these aggregates.
 
 ## CISO review: private moderation discovery
 

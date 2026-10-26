@@ -378,6 +378,11 @@ test('risk-queued duplicate is private, explained to admin and reversibly publis
   await expect(page.getByRole('heading', { level: 2, name: 'Moderation & audit' })).toBeVisible();
   await expect(page.getByText(/Review score \d+\/100/)).toBeVisible();
   await expect(page.getByText('Recent duplicate')).toBeVisible();
+  await expect(page.getByRole('heading', { level: 3, name: 'Operational overview' })).toBeVisible();
+  await expect(page.getByText('High-risk pending', { exact: true })).toBeVisible();
+  await page.getByText(/Suspicious activity · 0 exceptions · 0 active throttles/).click();
+  await expect(page.getByText('No failure or blocked events in the last 24 hours.')).toBeVisible();
+  await expect(page.getByText('No subjects are currently throttled.')).toBeVisible();
 
   const reviewFilters = page.getByRole('search', { name: 'Filter moderation workspace' });
   await reviewFilters.getByRole('searchbox', { name: 'Search names and messages' })

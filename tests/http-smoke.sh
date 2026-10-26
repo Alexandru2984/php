@@ -670,6 +670,19 @@ admin_session_id="$(cookie_value "${cookie_jar}" gbsid)"
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM rate_limits WHERE scope = 'admin-login';")" == 0 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM security_events WHERE event_type = 'admin.login';")" == 2 ]]
 [[ "$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" "SELECT COUNT(*) FROM admin_audit_events WHERE event_type = 'admin.login';")" == 1 ]]
+sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "INSERT INTO rate_limits
+        (scope, subject_hash, window_started_at, attempts, penalty_level,
+         blocked_until, updated_at)
+     VALUES
+        ('admin-login', lower(hex(randomblob(32))),
+         CAST(strftime('%s', 'now') AS INTEGER), 5, 1,
+         CAST(strftime('%s', 'now') AS INTEGER) + 600,
+         CAST(strftime('%s', 'now') AS INTEGER));"
+active_throttle_hash="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT subject_hash FROM rate_limits
+     WHERE scope = 'admin-login' AND blocked_until > strftime('%s', 'now') LIMIT 1;")"
+[[ "${active_throttle_hash}" =~ ^[0-9a-f]{64}$ ]]
 
 admin_headers="${tmp_dir}/admin-headers.txt"
 admin_html="$(curl --silent --show-error --dump-header "${admin_headers}" --cookie "${cookie_jar}" "${APP_ORIGIN}/")"
@@ -678,6 +691,17 @@ grep --quiet 'Abuse reports · 1 open' <<<"${admin_html}"
 grep --quiet 'Append-only admin audit' <<<"${admin_html}"
 grep --quiet 'Review score ' <<<"${admin_html}"
 grep --quiet 'Recent duplicate' <<<"${admin_html}"
+grep --fixed-strings --quiet 'Operational overview' <<<"${admin_html}"
+grep --fixed-strings --quiet 'High-risk pending' <<<"${admin_html}"
+grep --fixed-strings --quiet 'Security exceptions' <<<"${admin_html}"
+grep --fixed-strings --quiet 'Suspicious activity · 2 exceptions · 1 active throttle' <<<"${admin_html}"
+grep --fixed-strings --quiet 'This summary uses rolling 24-hour aggregates and shows up to 20 groups per list.' <<<"${admin_html}"
+grep --fixed-strings --quiet '<code>admin.login</code>' <<<"${admin_html}"
+grep --fixed-strings --quiet '<strong>1</strong>' <<<"${admin_html}"
+if grep --fixed-strings --quiet "${active_throttle_hash}" <<<"${admin_html}"; then
+    echo 'Authenticated operations view exposed a limiter subject hash.' >&2
+    exit 1
+fi
 grep --fixed-strings --quiet '<title>Admin workspace · Micuțu Guestbook</title>' <<<"${admin_html}"
 grep --fixed-strings --quiet '<meta name="robots" content="noindex, nofollow, noarchive">' <<<"${admin_html}"
 grep --fixed-strings --quiet 'aria-label="Filter moderation workspace"' <<<"${admin_html}"

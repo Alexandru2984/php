@@ -823,7 +823,19 @@ $adminAuditEvents = [];
 $securityEvents = [];
 $moderationCounts = array_fill_keys(moderation_states(), 0);
 $openReportTotal = 0;
+$adminOperations = [
+    'pending_total' => 0,
+    'high_risk_pending' => 0,
+    'oldest_pending_at' => null,
+    'open_reports' => 0,
+    'oldest_report_at' => null,
+    'security_exception_total' => 0,
+    'security_activity' => [],
+    'active_throttle_total' => 0,
+    'active_throttles' => [],
+];
 if ($isAdmin) {
+    $adminOperations = admin_operations_snapshot($pdo);
     foreach ($pdo->query('SELECT status, COUNT(*) AS total FROM messages GROUP BY status') as $row) {
         if (array_key_exists((string) $row['status'], $moderationCounts)) {
             $moderationCounts[(string) $row['status']] = (int) $row['total'];
@@ -852,9 +864,7 @@ if ($isAdmin) {
          WHERE r.status = 'open'
          ORDER BY r.created_at ASC, r.id ASC LIMIT 30"
     )->fetchAll();
-    $openReportTotal = (int) $pdo->query(
-        "SELECT COUNT(*) FROM abuse_reports WHERE status = 'open'"
-    )->fetchColumn();
+    $openReportTotal = $adminOperations['open_reports'];
     $adminAuditEvents = $pdo->query(
         "SELECT event_type, outcome, related_id, previous_state, new_state,
                 reason_code, created_at
@@ -1391,6 +1401,85 @@ $reportLabels = [
                 <div><strong><?php echo $count; ?></strong><span><?php echo e($statusLabels[$status]); ?></span></div>
                 <?php endforeach; ?>
             </div>
+
+            <section class="operations-overview" aria-labelledby="operations-overview-title">
+                <div class="operations-overview-head">
+                    <h3 id="operations-overview-title">Operational overview</h3>
+                    <span>Private aggregates · rolling 24 hours</span>
+                </div>
+                <div class="operations-stats">
+                    <div<?php echo $adminOperations['high_risk_pending'] > 0 ? ' class="has-attention"' : ''; ?>>
+                        <span>High-risk pending</span>
+                        <strong><?php echo $adminOperations['high_risk_pending']; ?></strong>
+                        <small>Score ≥ <?php echo RISK_REVIEW_THRESHOLD; ?></small>
+                    </div>
+                    <div<?php echo $adminOperations['pending_total'] > 0 ? ' class="has-attention"' : ''; ?>>
+                        <span>Oldest pending</span>
+                        <strong><?php echo $adminOperations['oldest_pending_at'] === null
+                            ? 'Clear'
+                            : e(time_ago($adminOperations['oldest_pending_at'])); ?></strong>
+                        <small><?php echo $adminOperations['pending_total']; ?> waiting</small>
+                    </div>
+                    <div<?php echo $adminOperations['open_reports'] > 0 ? ' class="has-attention"' : ''; ?>>
+                        <span>Oldest report</span>
+                        <strong><?php echo $adminOperations['oldest_report_at'] === null
+                            ? 'Clear'
+                            : e(time_ago('@' . $adminOperations['oldest_report_at'])); ?></strong>
+                        <small><?php echo $adminOperations['open_reports']; ?> open</small>
+                    </div>
+                    <div<?php echo $adminOperations['security_exception_total'] > 0 ? ' class="has-attention"' : ''; ?>>
+                        <span>Security exceptions</span>
+                        <strong><?php echo $adminOperations['security_exception_total']; ?></strong>
+                        <small>Failure/blocked · 24h</small>
+                    </div>
+                    <div<?php echo $adminOperations['active_throttle_total'] > 0 ? ' class="has-attention"' : ''; ?>>
+                        <span>Active throttles</span>
+                        <strong><?php echo $adminOperations['active_throttle_total']; ?></strong>
+                        <small>Aggregated subjects</small>
+                    </div>
+                </div>
+            </section>
+
+            <details class="admin-panel"<?php echo $adminOperations['security_exception_total'] > 0
+                || $adminOperations['active_throttle_total'] > 0 ? ' open' : ''; ?>>
+                <summary>Suspicious activity · <?php echo $adminOperations['security_exception_total']; ?> exception<?php echo $adminOperations['security_exception_total'] === 1 ? '' : 's'; ?> · <?php echo $adminOperations['active_throttle_total']; ?> active throttle<?php echo $adminOperations['active_throttle_total'] === 1 ? '' : 's'; ?></summary>
+                <p class="activity-privacy">This summary uses rolling 24-hour aggregates and shows up to 20 groups per list. It does not select visitor hashes, message identifiers, names or content.</p>
+                <div class="activity-columns">
+                    <section aria-labelledby="security-activity-title">
+                        <h3 id="security-activity-title">Failure and blocked event groups</h3>
+                        <?php if ($adminOperations['security_activity']): ?>
+                        <ol class="activity-list">
+                            <?php foreach ($adminOperations['security_activity'] as $activity): ?>
+                            <li>
+                                <code><?php echo e($activity['event_type']); ?></code>
+                                <span class="audit-outcome <?php echo e($activity['outcome']); ?>"><?php echo e($activity['outcome']); ?></span>
+                                <strong><?php echo $activity['total']; ?></strong>
+                                <time datetime="<?php echo e(gmdate('c', $activity['last_seen'])); ?>">last <?php echo e(time_ago('@' . $activity['last_seen'])); ?></time>
+                            </li>
+                            <?php endforeach; ?>
+                        </ol>
+                        <?php else: ?>
+                        <p class="panel-empty">No failure or blocked events in the last 24 hours.</p>
+                        <?php endif; ?>
+                    </section>
+                    <section aria-labelledby="active-throttles-title">
+                        <h3 id="active-throttles-title">Active throttle scopes</h3>
+                        <?php if ($adminOperations['active_throttles']): ?>
+                        <ol class="activity-list throttle-list">
+                            <?php foreach ($adminOperations['active_throttles'] as $throttle): ?>
+                            <li>
+                                <code><?php echo e($throttle['scope']); ?></code>
+                                <strong><?php echo $throttle['total']; ?></strong>
+                                <span>active</span>
+                            </li>
+                            <?php endforeach; ?>
+                        </ol>
+                        <?php else: ?>
+                        <p class="panel-empty">No subjects are currently throttled.</p>
+                        <?php endif; ?>
+                    </section>
+                </div>
+            </details>
 
             <details class="admin-panel"<?php echo $openReportTotal > 0 ? ' open' : ''; ?>>
                 <summary>Abuse reports · <?php echo $openReportTotal; ?> open</summary>

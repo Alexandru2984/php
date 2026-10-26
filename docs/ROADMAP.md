@@ -5,7 +5,7 @@ stage must be an atomic commit (or small reviewed commit series), include tests 
 have a rollback path. Production changes happen only after the stage passes its exit
 criteria.
 
-## Status after the 2026-10-26 moderation-workspace release
+## Status after the 2026-10-26 moderation-operations release
 
 - **Deployed:** Stages 0–2 core controls: isolated build/test, recoverable backup,
   fail-closed configuration, persistent auth throttling, versioned migrations,
@@ -18,7 +18,8 @@ criteria.
   boundary cases and real-cookie HTTP regression coverage.
 - **Partially delivered:** Stage 3 now has category-only abuse reports, a responsive
   private workspace with indexed search, state filters, risk/newest/oldest sorting and
-  bounded pagination, five moderation states, reversible actions, controlled reasons,
+  bounded pagination plus queue age, high-risk work, security-exception and active-
+  throttle aggregates, five moderation states, reversible actions, controlled reasons,
   privacy/about UI, identifier minimisation and append-only admin audit; Stage 5 now has RSS/permalinks,
   a sessionless versioned read API, signed cursor pagination, strong ETags and
   OpenAPI plus bounded SQLite FTS5 search; responsive/accessibility foundations and
@@ -106,9 +107,9 @@ clean.
   authorized permanent purge.
 - Add an append-only admin audit trail for login, approval, hide, restore, export and
   settings changes.
-- Extend the responsive admin workspace with bulk actions, aggregate stats and a
-  suspicious-activity view. Its review queue, indexed search, state filters, sorting
-  and bounded pagination are delivered.
+- Extend the responsive admin workspace with carefully authorized bulk actions. Its
+  review queue, indexed search, state filters, sorting, bounded pagination, aggregate
+  operational stats and privacy-minimal suspicious-activity view are delivered.
 - Add privacy/about/report-abuse pages, an operator contact, consent-aware analytics,
   retention policy and data export/erasure workflow.
 - Erase `ip_hash` after the rate-limit/abuse window and rotate purpose-specific keys

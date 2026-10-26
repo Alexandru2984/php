@@ -1170,6 +1170,130 @@ function admin_review_messages(
     return ['items' => $items, 'total' => $total, 'pages' => $pages];
 }
 
+/**
+ * Build a privacy-minimal operational snapshot for the authenticated workspace.
+ *
+ * Security and limiter rows are aggregated before leaving SQLite. Subject hashes,
+ * message content, author names and related identifiers are never projected.
+ *
+ * @return array{
+ *   pending_total:int,
+ *   high_risk_pending:int,
+ *   oldest_pending_at:?string,
+ *   open_reports:int,
+ *   oldest_report_at:?int,
+ *   security_exception_total:int,
+ *   security_activity:list<array{event_type:string,outcome:string,total:int,last_seen:int}>,
+ *   active_throttle_total:int,
+ *   active_throttles:list<array{scope:string,total:int}>
+ * }
+ */
+function admin_operations_snapshot(PDO $pdo, ?int $now = null): array
+{
+    $now ??= time();
+    if ($now < 0) {
+        throw new InvalidArgumentException('Invalid operations snapshot time');
+    }
+    $cutoff = max(0, $now - 86400);
+
+    $queue = $pdo->prepare(
+        "SELECT
+             COALESCE(SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0)
+                 AS pending_total,
+             COALESCE(SUM(CASE
+                 WHEN status = 'pending' AND risk_score >= :risk_threshold THEN 1
+                 ELSE 0
+             END), 0) AS high_risk_pending,
+             MIN(CASE WHEN status = 'pending' THEN created_at END) AS oldest_pending_at
+         FROM messages"
+    );
+    $queue->bindValue(':risk_threshold', RISK_REVIEW_THRESHOLD, PDO::PARAM_INT);
+    $queue->execute();
+    $queueRow = $queue->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    $reportRow = $pdo->query(
+        "SELECT COUNT(*) AS open_reports, MIN(created_at) AS oldest_report_at
+         FROM abuse_reports WHERE status = 'open'"
+    )->fetch(PDO::FETCH_ASSOC) ?: [];
+
+    $exceptionCount = $pdo->prepare(
+        "SELECT COUNT(*) FROM security_events
+         WHERE outcome IN ('failure', 'blocked')
+           AND created_at >= :cutoff
+           AND created_at <= :now"
+    );
+    $exceptionCount->bindValue(':cutoff', $cutoff, PDO::PARAM_INT);
+    $exceptionCount->bindValue(':now', $now, PDO::PARAM_INT);
+    $exceptionCount->execute();
+    $securityExceptionTotal = (int) $exceptionCount->fetchColumn();
+
+    $activity = $pdo->prepare(
+        "SELECT event_type, outcome, COUNT(*) AS total, MAX(created_at) AS last_seen
+         FROM security_events
+         WHERE outcome IN ('failure', 'blocked')
+           AND created_at >= :cutoff
+           AND created_at <= :now
+         GROUP BY event_type, outcome
+         ORDER BY total DESC, last_seen DESC, event_type ASC, outcome ASC
+         LIMIT 20"
+    );
+    $activity->bindValue(':cutoff', $cutoff, PDO::PARAM_INT);
+    $activity->bindValue(':now', $now, PDO::PARAM_INT);
+    $activity->execute();
+    $securityActivity = [];
+    foreach ($activity->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $total = (int) $row['total'];
+        $securityActivity[] = [
+            'event_type' => (string) $row['event_type'],
+            'outcome' => (string) $row['outcome'],
+            'total' => $total,
+            'last_seen' => (int) $row['last_seen'],
+        ];
+    }
+
+    $throttleCount = $pdo->prepare(
+        'SELECT COUNT(*) FROM rate_limits WHERE blocked_until > :now'
+    );
+    $throttleCount->bindValue(':now', $now, PDO::PARAM_INT);
+    $throttleCount->execute();
+    $activeThrottleTotal = (int) $throttleCount->fetchColumn();
+
+    $throttles = $pdo->prepare(
+        "SELECT scope, COUNT(*) AS total
+         FROM rate_limits
+         WHERE blocked_until > :now
+         GROUP BY scope
+         ORDER BY total DESC, scope ASC
+         LIMIT 20"
+    );
+    $throttles->bindValue(':now', $now, PDO::PARAM_INT);
+    $throttles->execute();
+    $activeThrottles = [];
+    foreach ($throttles->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $total = (int) $row['total'];
+        $activeThrottles[] = [
+            'scope' => (string) $row['scope'],
+            'total' => $total,
+        ];
+    }
+
+    return [
+        'pending_total' => (int) ($queueRow['pending_total'] ?? 0),
+        'high_risk_pending' => (int) ($queueRow['high_risk_pending'] ?? 0),
+        'oldest_pending_at' => is_string($queueRow['oldest_pending_at'] ?? null)
+            ? $queueRow['oldest_pending_at']
+            : null,
+        'open_reports' => (int) ($reportRow['open_reports'] ?? 0),
+        'oldest_report_at' => ($reportRow['oldest_report_at'] ?? null) === null
+            ? null
+            : (int) $reportRow['oldest_report_at'],
+        'security_exception_total' => $securityExceptionTotal,
+        'security_activity' => $securityActivity,
+        'active_throttle_total' => $activeThrottleTotal,
+        'active_throttles' => $activeThrottles,
+    ];
+}
+
 /** Append a minimal, immutable admin audit event. */
 function admin_audit_event(
     PDO $pdo,
