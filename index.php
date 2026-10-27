@@ -1027,6 +1027,28 @@ if ($messageId !== null) {
 }
 $canonicalUrl = APP_ORIGIN . $canonicalPath;
 $primaryMessage = $messageId !== null && isset($messages[0]) ? $messages[0] : null;
+$messageNeighbors = null;
+$messageArchivePath = null;
+$messageArchiveLabel = null;
+if (is_array($primaryMessage)) {
+    $messageNeighbors = public_message_neighbors($pdo, (int) $primaryMessage['id']);
+    if ($messageNeighbors === null) {
+        abort_response(404, 'Message not found.');
+    }
+    $messageArchiveDate = DateTimeImmutable::createFromFormat(
+        '!Y-m-d H:i:s',
+        (string) $primaryMessage['created_at'],
+        new DateTimeZone('UTC')
+    );
+    if (!$messageArchiveDate instanceof DateTimeImmutable) {
+        throw new RuntimeException('Message has an invalid publication timestamp');
+    }
+    $messageArchivePath = public_archive_path(
+        (int) $messageArchiveDate->format('Y'),
+        (int) $messageArchiveDate->format('m')
+    );
+    $messageArchiveLabel = $messageArchiveDate->format('F Y');
+}
 $siteName = 'Micuțu Guestbook';
 $socialImageUrl = APP_ORIGIN . asset('assets/social-card.png');
 $socialImageAlt = 'An open guestbook surrounded by friendly message cards.';
@@ -1242,10 +1264,16 @@ $reportLabels = [
                     <a itemprop="item" href="/"><span itemprop="name">Guestbook</span></a>
                     <meta itemprop="position" content="1">
                 </li>
+                <?php if ($messageId !== null): ?>
+                <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem">
+                    <a itemprop="item" href="<?php echo e($messageArchivePath); ?>"><span itemprop="name"><?php echo e($messageArchiveLabel); ?> archive</span></a>
+                    <meta itemprop="position" content="2">
+                </li>
+                <?php endif; ?>
                 <li itemprop="itemListElement" itemscope itemtype="https://schema.org/ListItem"
                     aria-current="page">
                     <span itemprop="name"><?php echo e($messageId !== null ? 'Message #' . $messageId : $archiveLabel . ' archive'); ?></span>
-                    <meta itemprop="position" content="2">
+                    <meta itemprop="position" content="<?php echo $messageId !== null ? 3 : 2; ?>">
                 </li>
             </ol>
         </nav>
@@ -1453,6 +1481,27 @@ $reportLabels = [
                         </article>
                     <?php endforeach; ?>
                 </div>
+
+                <?php if ($messageId !== null
+                    && is_array($messageNeighbors)
+                    && ($messageNeighbors['newer'] !== null || $messageNeighbors['older'] !== null)): ?>
+                <nav class="message-neighbors" aria-label="Adjacent messages">
+                    <?php if ($messageNeighbors['newer'] !== null): ?>
+                    <a class="message-neighbor message-neighbor-newer"
+                       href="<?php echo e(public_message_path($messageNeighbors['newer'])); ?>">
+                        <span>&larr; Newer message</span>
+                        <strong>#<?php echo $messageNeighbors['newer']; ?></strong>
+                    </a>
+                    <?php endif; ?>
+                    <?php if ($messageNeighbors['older'] !== null): ?>
+                    <a class="message-neighbor message-neighbor-older"
+                       href="<?php echo e(public_message_path($messageNeighbors['older'])); ?>">
+                        <span>Older message &rarr;</span>
+                        <strong>#<?php echo $messageNeighbors['older']; ?></strong>
+                    </a>
+                    <?php endif; ?>
+                </nav>
+                <?php endif; ?>
 
                 <?php if ($pages > 1): ?>
                 <nav class="pager" aria-label="Pagination">

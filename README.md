@@ -12,6 +12,8 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
   indexes, bounded plain-text queries and pagination.
 - Clean permanent message links (`/messages/ID`) plus cache-aware RSS 2.0 and
   JSON Feed 1.1 discovery (`/feed.xml` and `/feed.json`).
+- Crawlable newer/older navigation on message permalinks with a UTC month
+  breadcrumb, stable ordering and published-only boundaries.
 - Responsive UTC calendar discovery at `/archive` plus clean `/archive/YYYY/MM`
   pages, canonical pagination, semantic breadcrumbs and published-only counts.
 - Progressive native sharing with a local clipboard fallback and no third-party SDK.

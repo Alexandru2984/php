@@ -412,6 +412,40 @@ check(
         && simplexml_load_string($rssFixture) !== false,
     'generated sitemap and RSS are valid XML'
 );
+$seoDb->exec(
+    "INSERT INTO messages (author, content, created_at, status)
+     VALUES ('Older neighbor', 'Older public neighbor', '2026-10-23 07:00:00', 'published'),
+            ('Hidden neighbor', 'Hidden adjacent secret', '2026-10-23 08:00:00', 'hidden'),
+            ('Tied neighbor', 'Same-time public neighbor', '2026-10-23 08:00:00', 'published'),
+            ('Newest neighbor', 'Newest public neighbor', '2026-10-23 10:00:00', 'published')"
+);
+check(
+    public_message_neighbors($seoDb, 1) === ['newer' => 5, 'older' => 3]
+        && public_message_neighbors($seoDb, 5) === ['newer' => 6, 'older' => 1]
+        && public_message_neighbors($seoDb, 3) === ['newer' => 1, 'older' => null]
+        && public_message_neighbors($seoDb, 6) === ['newer' => null, 'older' => 5],
+    'permalink neighbors use stable timestamp/id order and skip moderated rows'
+);
+check(
+    public_message_neighbors($seoDb, 2) === null
+        && public_message_neighbors($seoDb, 999) === null,
+    'non-public and missing messages cannot produce public navigation'
+);
+$neighborPlan = $seoDb->query(
+    "EXPLAIN QUERY PLAN
+     SELECT id FROM messages
+     WHERE status = 'published'
+       AND (created_at, id) < ('2026-10-23 08:00:00', 5)
+     ORDER BY created_at DESC, id DESC LIMIT 1"
+)->fetchAll();
+check(
+    str_contains(
+        implode(' ', array_map(static fn(array $row): string => (string) $row['detail'], $neighborPlan)),
+        'idx_messages_status_created'
+    ),
+    'adjacent-message lookup uses the published timestamp index'
+);
+$seoDb->exec('DELETE FROM messages WHERE id >= 3');
 check(
     fts5_query_from_text('  Alice, HELLO! Alice ') === '"alice"* AND "hello"*',
     'plain search text becomes deduplicated bounded prefix terms'

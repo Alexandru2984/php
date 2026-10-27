@@ -5,7 +5,7 @@ stage must be an atomic commit (or small reviewed commit series), include tests 
 have a rollback path. Production changes happen only after the stage passes its exit
 criteria.
 
-## Status after the 2026-10-27 owner-controls release
+## Status after the 2026-10-27 permalink-navigation release
 
 - **Deployed:** Stages 0–2 core controls: isolated build/test, recoverable backup,
   fail-closed configuration, persistent auth throttling, versioned migrations,
@@ -237,10 +237,11 @@ credential-compromise tabletop reaches containment within target time.
 social preview, large-image X metadata, `WebSite`,
 `DiscussionForumPosting` and visible `BreadcrumbList` microdata, `/sitemap.xml`,
 `/feed.xml`, JSON Feed 1.1 at `/feed.json`, responsive UTC calendar archives,
-a crawlable favicon, clean `/messages/ID` permalinks, sessionless legacy
-redirects, real 404s and explicit privacy-safe share/copy controls are covered by
-unit, HTTP, health and Chromium checks. Search Console ownership, production
-rich-result validation and crawler-log dashboards remain.
+a crawlable favicon, clean `/messages/ID` permalinks, UTC-month permalink
+breadcrumbs, indexed published-only newer/older links, sessionless legacy redirects,
+real 404s and explicit privacy-safe share/copy controls are covered by unit, HTTP,
+health and Chromium checks. Search Console ownership, production rich-result
+validation and crawler-log dashboards remain.
 
 ## Explicitly deferred until foundations pass
 

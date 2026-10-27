@@ -64,6 +64,66 @@ function public_message_path(int $id, bool $fragment = false): string
     return $fragment ? $path . '#m' . $id : $path;
 }
 
+/**
+ * Return the immediately adjacent published message identifiers in stable
+ * chronological order. A non-public or missing current message returns null.
+ *
+ * @return array{newer:?int, older:?int}|null
+ */
+function public_message_neighbors(PDO $pdo, int $messageId): ?array
+{
+    if ($messageId < 1) {
+        throw new InvalidArgumentException('Invalid message identifier');
+    }
+
+    $stmt = $pdo->prepare(
+        "WITH current_message AS (
+             SELECT id, created_at
+             FROM messages
+             WHERE id = :message_id AND status = 'published'
+         )
+         SELECT
+             (
+                 SELECT m.id
+                 FROM messages AS m
+                 WHERE m.status = 'published'
+                   AND (m.created_at, m.id) > (current_message.created_at, current_message.id)
+                 ORDER BY m.created_at ASC, m.id ASC
+                 LIMIT 1
+             ) AS newer_id,
+             (
+                 SELECT m.id
+                 FROM messages AS m
+                 WHERE m.status = 'published'
+                   AND (m.created_at, m.id) < (current_message.created_at, current_message.id)
+                 ORDER BY m.created_at DESC, m.id DESC
+                 LIMIT 1
+             ) AS older_id
+         FROM current_message"
+    );
+    $stmt->execute([':message_id' => $messageId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($row === false) {
+        return null;
+    }
+
+    $normalizeId = static function (mixed $value): ?int {
+        if ($value === null) {
+            return null;
+        }
+        $id = filter_var($value, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if ($id === false) {
+            throw new RuntimeException('Invalid adjacent message identifier');
+        }
+        return $id;
+    };
+
+    return [
+        'newer' => $normalizeId($row['newer_id'] ?? null),
+        'older' => $normalizeId($row['older_id'] ?? null),
+    ];
+}
+
 /** Return the private management path for one newly submitted message. */
 function message_manage_path(int $id): string
 {

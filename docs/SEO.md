@@ -60,11 +60,20 @@ and sitemap immediately.
 
 The homepage exposes `WebSite` microdata with a visible matching site name. A message
 permalink exposes `DiscussionForumPosting`, `Person`, full visible text and an ISO
-publication time. Its visible two-level breadcrumb also exposes `BreadcrumbList`.
+publication time. Its visible three-level breadcrumb links the guestbook, the
+corresponding UTC month archive and the current message while exposing
+`BreadcrumbList`.
 Legacy `/?message=ID` links redirect permanently without creating a session, while
 malformed or mixed canonical parameters fail closed. Microdata avoids weakening the
 CSP for inline JSON-LD and is emitted only when the same published content is visible
 on the page.
+
+Each public permalink also emits at most two descriptive, server-rendered `<a href>`
+links to its immediately newer and older published neighbours. Ordering is stable on
+`(created_at, id)`, the lookup uses the existing status/time index, moderated states
+are skipped, and only positive numeric message paths are projected. A boundary
+permalink omits its missing direction; an isolated message emits no empty navigation
+landmark.
 
 The standalone About, Privacy and Moderation routes are sessionless HTML documents
 with origin-generated ETags, short public caching and no cookie. Each has a unique
@@ -95,6 +104,7 @@ message text never enter share metadata, and no social SDK or outbound API is lo
 This implementation follows current primary guidance from
 [Google Search Central on sitemaps](https://developers.google.com/search/docs/crawling-indexing/sitemaps/build-sitemap),
 [crawlable links](https://developers.google.com/search/docs/crawling-indexing/links-crawlable),
+[breadcrumb structured data](https://developers.google.com/search/docs/appearance/structured-data/breadcrumb),
 [canonical URLs](https://developers.google.com/search/docs/crawling-indexing/canonicalization),
 [pagination and incremental page loading](https://developers.google.com/search/docs/specialty/ecommerce/pagination-and-incremental-page-loading),
 [site names](https://developers.google.com/search/docs/appearance/site-names),
@@ -110,24 +120,27 @@ This implementation follows current primary guidance from
 
 ## CISO review
 
-**Date:** 2026-10-26
+**Date:** 2026-10-27
 
 ### Threat model
 
-1. **Information disclosure — medium likelihood/high impact:** a sitemap, central or
-   monthly calendar archive, feed or structured-data projection could expose pending or moderated
-   content. Mitigation: every generator and archive query selects
-   `status = 'published'`; HTTP tests hide a live record and prove immediate removal
-   from every discovery surface and a 404 for its now-empty month.
+1. **Information disclosure — medium likelihood/high impact:** a sitemap, archive,
+   feed, structured-data projection or adjacent link could expose pending or moderated
+   content. Mitigation: every generator, archive and neighbour query selects
+   `status = 'published'`; HTTP tests place a hidden fixture directly between public
+   neighbours and prove it is not linked, while existing tests prove immediate
+   removal from every discovery surface and a 404 for its now-empty month.
 2. **Tampering/spoofing — medium likelihood/medium impact:** visitor text could inject
    markup, misleading metadata or a hostile canonical URL. Mitigation: canonical URLs
    are application-generated from strictly positive numeric identifiers, clean paths
    reject query mixing, XML and HTML contexts are independently escaped, titles are
    length-bounded and structured fields exactly mirror visible content.
 3. **Denial of service — low likelihood/medium impact:** crawler bursts could repeatedly
-   generate large XML documents or archive queries. Mitigation: a strict 50,000-URL
-   sitemap budget, a 120-month archive-index/sitemap bound, a 12-month homepage bound, indexed status/timestamp
-   ranges, normal page-size limits and the existing edge request limit.
+   generate large XML documents, archive queries or permalink lookups. Mitigation: a
+   strict 50,000-URL sitemap budget, a 120-month archive-index/sitemap bound, a
+   12-month homepage bound, indexed status/timestamp ranges, one bounded adjacent
+   lookup returning at most two IDs, normal page-size limits and the existing edge
+   request limit.
 4. **Accidental disclosure — low likelihood/medium impact:** convenience sharing could
    silently leak visitor text or navigation state. Mitigation: no automatic action,
    generic titles, canonical paths only, and a local clipboard fallback.
@@ -147,10 +160,13 @@ evidence does not support inventing a dollar value.
 The five-minute health probe fetches the sitemap once and validates RSS, JSON Feed,
 sitemap XML with all three public information URLs, the sessionless Privacy page
 contract, the central archive index, a discovered calendar month, the exact robots
-sitemap directive and a current clean permalink through Cloudflare. CI separately proves the
-legacy redirect is sessionless, canonical paths reject mixed parameters, hidden
-records remove both archive levels, and validates cache headers, XML, browser-visible microdata and
-explicit share invocation. On leakage, hide the record, purge the affected Cloudflare cache object,
+sitemap directive and a current clean permalink through Cloudflare. The permalink
+probe verifies its archive breadcrumb and checks every rendered neighbour ID against
+the live database for published status. CI separately proves the legacy redirect is
+sessionless, canonical paths reject mixed parameters, hidden records remove both
+archive levels and cannot become adjacent links, and validates cache headers, XML,
+browser-visible microdata and explicit share invocation. On leakage, hide the record,
+purge the affected Cloudflare cache object,
 remove the URL through the relevant search console when necessary, preserve logs and
 follow the [incident-response runbook](INCIDENT_RESPONSE.md). The current MTTD target
 is five minutes plus timer jitter. An automated engineering disclosure rehearsal on
@@ -166,13 +182,13 @@ processor, cookie, package or outbound submission API is introduced. Google, Bin
 other crawlers may independently discover public URLs; Search Console ownership and
 processor/legal-basis records remain operator responsibilities. A qualifying personal
 data breach still requires controller assessment against GDPR's 72-hour window. The
-calendar archive adds zero vendors, subprocessors, cookies, packages or outbound APIs.
+discovery extension adds zero vendors, subprocessors, cookies, packages or outbound APIs.
 
 ## Verdict and rollback
 
-**Verdict:** 🟡 MITIGATE THEN SHIP. The central archive adds no new data class and its
-technical leakage/DoS controls and rollback are present; data-subject operations and
-post-deploy Search Console validation remain.
+**Verdict:** 🟡 MITIGATE THEN SHIP. Public permalink navigation adds no new data
+class and its technical leakage/DoS controls and rollback are present; data-subject
+operations and post-deploy Search Console validation remain.
 
 The change adds no schema migration, package or vendor. Worst-case blast radius
 remains every non-public message if the publication predicate regresses; the route

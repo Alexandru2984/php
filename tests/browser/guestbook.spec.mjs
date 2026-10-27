@@ -304,15 +304,30 @@ test('SEO metadata, canonical permalinks and structured data match visible conte
 
   const permalink = await page.locator('.permalink').first().getAttribute('href');
   expect(permalink).toMatch(/^\/messages\/\d+#m\d+$/);
+  await page.goto('/');
+  await page.getByRole('textbox', { name: /Name/ }).fill('Neighbor check');
+  await page.getByRole('textbox', { name: 'Message' }).fill('Published permalink neighbor');
+  await page.getByRole('button', { name: 'Post message' }).click();
+  await expect(page).toHaveURL(/\/messages\/\d+\/manage(?:#main-content)?$/);
   await page.goto(permalink);
   await expect(page).toHaveTitle(/Message by Browser check · Micuțu Guestbook/);
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/messages\/\d+$/);
   await expect(page.locator('meta[property="og:type"]')).toHaveAttribute('content', 'article');
   await expect(page.locator('meta[property="article:published_time"]')).toHaveAttribute('content', /Z$/);
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Guestbook');
+  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(/\w+ 20\d{2} archive/);
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText(/Message #\d+/);
+  const adjacentNavigation = page.getByRole('navigation', { name: 'Adjacent messages' });
+  await expect(adjacentNavigation).toBeVisible();
+  const adjacentLinks = adjacentNavigation.locator('a[href^="/messages/"]');
+  expect(await adjacentLinks.count()).toBeGreaterThanOrEqual(1);
+  expect(await adjacentLinks.count()).toBeLessThanOrEqual(2);
+  await expect(adjacentLinks.first()).toHaveAttribute('href', /^\/messages\/\d+$/);
   await expect(page.locator('[itemtype="https://schema.org/DiscussionForumPosting"] [itemprop="text"]'))
     .toHaveText('Responsive accessibility flow');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  const permalinkResults = await new AxeBuilder({ page }).withTags(wcagTags).analyze();
+  expect(violationSummary(permalinkResults), 'permalink navigation WCAG violations').toEqual([]);
 
   await page.goto('/?q=accessibility');
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute('content', 'noindex, follow');

@@ -344,6 +344,36 @@ if [[ -n "${first_message_id}" ]]; then
         || fail seo posting-schema-missing
     [[ "${message_html}" == *"/messages/${first_message_id}\""* ]] \
         || fail seo canonical-permalink-missing
+    [[ "${message_html}" == *'itemprop="item" href="/archive/'* ]] \
+        || fail seo permalink-archive-breadcrumb-missing
+    # The PHP snippet extracts only canonical numeric adjacent-message links.
+    # shellcheck disable=SC2016
+    message_neighbor_ids="$("${php_cli[@]}" -r '
+        $html = stream_get_contents(STDIN);
+        preg_match_all(
+            "~<a class=\"message-neighbor message-neighbor-(?:newer|older)\"\\s+href=\"/messages/([1-9][0-9]*)\">~",
+            $html,
+            $matches
+        );
+        $ids = array_values(array_unique($matches[1] ?? []));
+        if (count($ids) > 2 || count($ids) !== count($matches[1] ?? [])) { exit(1); }
+        echo implode(",", $ids);
+    ' <<<"${message_html}")" || fail seo permalink-neighbor-shape-invalid
+    if [[ -n "${message_neighbor_ids}" ]]; then
+        IFS=',' read -r -a message_neighbor_list <<<"${message_neighbor_ids}"
+        for message_neighbor_id in "${message_neighbor_list[@]}"; do
+            [[ "${message_neighbor_id}" != "${first_message_id}" ]] \
+                || fail seo permalink-neighbor-self-reference
+        done
+        published_neighbor_count="$(sqlite3 -batch "${db_path}" \
+            "SELECT COUNT(*) FROM messages
+             WHERE status = 'published' AND id IN (${message_neighbor_ids});")" \
+            || fail seo permalink-neighbor-query-failed
+        [[ "${published_neighbor_count}" == "${#message_neighbor_list[@]}" ]] \
+            || fail seo permalink-neighbor-status-invalid
+        unset message_neighbor_id message_neighbor_list published_neighbor_count
+    fi
+    unset message_neighbor_ids
     unset message_html
 fi
 unset api_document first_message_id

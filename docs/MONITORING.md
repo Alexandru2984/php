@@ -23,8 +23,9 @@ The guestbook probe checks:
 
 - HTML marker, sessionless API v1 schema/cache/cookie guarantees, RSS and JSON Feed
   shapes, sitemap XML, the canonical/cache/schema/cookie contract of the Privacy
-  page, a discovered calendar archive and robots discovery through the public
-  Cloudflare route;
+  page, a discovered calendar archive, a permalink's archive breadcrumb and the
+  published-only status of its adjacent links, plus robots discovery through the
+  public Cloudflare route;
 - the self-hosted analytics script and all privacy attributes in rendered HTML;
 - SQLite `quick_check`, the minimum migration count, recent admin-login and invalid
   owner-capability failures (export or withdrawal), ownership/featured invariants and privacy-minimal counts

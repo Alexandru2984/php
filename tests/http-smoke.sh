@@ -459,6 +459,25 @@ if grep --ignore-case --quiet '^Set-Cookie:' "${legacy_permalink_headers}"; then
     exit 1
 fi
 [[ ! -s "${legacy_permalink_body}" ]]
+sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "INSERT INTO messages (author, content, created_at, status)
+     SELECT 'Older neighbor', 'Older public neighbor', datetime(created_at, '-2 seconds'), 'published'
+     FROM messages WHERE id = ${message_id};
+     INSERT INTO messages (author, content, created_at, status)
+     SELECT 'Hidden neighbor', 'Hidden adjacent secret', datetime(created_at, '-1 second'), 'hidden'
+     FROM messages WHERE id = ${message_id};
+     INSERT INTO messages (author, content, created_at, status)
+     SELECT 'Newer neighbor', 'Newer public neighbor', datetime(created_at, '+2 seconds'), 'published'
+     FROM messages WHERE id = ${message_id};"
+older_neighbor_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT id FROM messages WHERE content = 'Older public neighbor';")"
+hidden_neighbor_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT id FROM messages WHERE content = 'Hidden adjacent secret';")"
+newer_neighbor_id="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT id FROM messages WHERE content = 'Newer public neighbor';")"
+message_archive_path="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT '/archive/' || substr(created_at, 1, 4) || '/' || substr(created_at, 6, 2)
+     FROM messages WHERE id = ${message_id};")"
 permalink_html="$(curl --silent --show-error --cookie "${cookie_jar}" --cookie-jar "${cookie_jar}" "${APP_ORIGIN}/messages/${message_id}")"
 grep --quiet 'Hello from the isolated smoke test' <<<"${permalink_html}"
 grep --fixed-strings --quiet 'data-compose-form data-clear-local-draft="true"' <<<"${permalink_html}"
@@ -473,15 +492,26 @@ grep --fixed-strings --quiet 'itemtype="https://schema.org/DiscussionForumPostin
 grep --fixed-strings --quiet 'itemprop="image"' <<<"${permalink_html}"
 grep --fixed-strings --quiet 'itemtype="https://schema.org/BreadcrumbList"' <<<"${permalink_html}"
 grep --fixed-strings --quiet 'aria-current="page"' <<<"${permalink_html}"
+grep --fixed-strings --quiet "<a itemprop=\"item\" href=\"${message_archive_path}\">" <<<"${permalink_html}"
+grep --fixed-strings --quiet '<meta itemprop="position" content="3">' <<<"${permalink_html}"
 grep --fixed-strings --quiet 'itemprop="datePublished"' <<<"${permalink_html}"
 grep --fixed-strings --quiet 'itemprop="text"' <<<"${permalink_html}"
 grep --fixed-strings --quiet "data-share-path=\"/messages/${message_id}\"" <<<"${permalink_html}"
 grep --fixed-strings --quiet "data-share-title=\"Micuțu Guestbook message #${message_id}\"" <<<"${permalink_html}"
 grep --fixed-strings --quiet 'class="share-button" type="button" hidden' <<<"${permalink_html}"
+grep --fixed-strings --quiet 'aria-label="Adjacent messages"' <<<"${permalink_html}"
+grep --fixed-strings --quiet "href=\"/messages/${newer_neighbor_id}\"" <<<"${permalink_html}"
+grep --fixed-strings --quiet "href=\"/messages/${older_neighbor_id}\"" <<<"${permalink_html}"
+if grep --fixed-strings --quiet "href=\"/messages/${hidden_neighbor_id}\"" <<<"${permalink_html}"; then
+    echo 'Permalink navigation exposed a moderated message.' >&2
+    exit 1
+fi
 if grep --fixed-strings --quiet 'data-share-title="Micuțu Guestbook message by Alice' <<<"${permalink_html}"; then
     echo 'Share metadata unexpectedly contains the visitor name.' >&2
     exit 1
 fi
+sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "DELETE FROM messages WHERE author IN ('Older neighbor', 'Hidden neighbor', 'Newer neighbor');"
 [[ "$(request_code "${APP_ORIGIN}/?message%5B%5D=${message_id}")" == 400 ]]
 [[ "$(request_code "${APP_ORIGIN}/messages/999999999")" == 404 ]]
 [[ "$(request_code "${APP_ORIGIN}/messages/${message_id}?q=hello")" == 400 ]]
