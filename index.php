@@ -1030,6 +1030,7 @@ $primaryMessage = $messageId !== null && isset($messages[0]) ? $messages[0] : nu
 $messageNeighbors = null;
 $messageArchivePath = null;
 $messageArchiveLabel = null;
+$archiveNeighbors = null;
 if (is_array($primaryMessage)) {
     $messageNeighbors = public_message_neighbors($pdo, (int) $primaryMessage['id']);
     if ($messageNeighbors === null) {
@@ -1048,6 +1049,33 @@ if (is_array($primaryMessage)) {
         (int) $messageArchiveDate->format('m')
     );
     $messageArchiveLabel = $messageArchiveDate->format('F Y');
+}
+if ($isArchiveMonth) {
+    $archiveNeighborKeys = public_archive_neighbors($pdo, $archiveYear, $archiveMonth);
+    if ($archiveNeighborKeys === null) {
+        abort_response(404, 'Archive not found.');
+    }
+    $archiveNeighbors = ['newer' => null, 'older' => null];
+    foreach ($archiveNeighborKeys as $direction => $archiveNeighborKey) {
+        if ($archiveNeighborKey === null) {
+            continue;
+        }
+        $archiveNeighborDate = DateTimeImmutable::createFromFormat(
+            '!Y-m',
+            $archiveNeighborKey,
+            new DateTimeZone('UTC')
+        );
+        if (!$archiveNeighborDate instanceof DateTimeImmutable) {
+            throw new RuntimeException('Invalid adjacent archive timestamp');
+        }
+        $archiveNeighbors[$direction] = [
+            'path' => public_archive_path(
+                (int) $archiveNeighborDate->format('Y'),
+                (int) $archiveNeighborDate->format('m')
+            ),
+            'label' => $archiveNeighborDate->format('F Y'),
+        ];
+    }
 }
 $siteName = 'Micuțu Guestbook';
 $socialImageUrl = APP_ORIGIN . asset('assets/social-card.png');
@@ -1515,6 +1543,27 @@ $reportLabels = [
                         <a class="pager-btn" href="<?php echo e(feed_url($page + 1, $q, $archiveYear, $archiveMonth)); ?>" rel="next">Older &rarr;</a>
                     <?php else: ?>
                         <span class="pager-btn disabled">Older &rarr;</span>
+                    <?php endif; ?>
+                </nav>
+                <?php endif; ?>
+
+                <?php if ($isArchiveMonth
+                    && is_array($archiveNeighbors)
+                    && ($archiveNeighbors['newer'] !== null || $archiveNeighbors['older'] !== null)): ?>
+                <nav class="archive-neighbors" aria-label="Adjacent archive months">
+                    <?php if ($archiveNeighbors['newer'] !== null): ?>
+                    <a class="archive-neighbor archive-neighbor-newer"
+                       href="<?php echo e($archiveNeighbors['newer']['path']); ?>">
+                        <span>&larr; Newer month</span>
+                        <strong><?php echo e($archiveNeighbors['newer']['label']); ?></strong>
+                    </a>
+                    <?php endif; ?>
+                    <?php if ($archiveNeighbors['older'] !== null): ?>
+                    <a class="archive-neighbor archive-neighbor-older"
+                       href="<?php echo e($archiveNeighbors['older']['path']); ?>">
+                        <span>Older month &rarr;</span>
+                        <strong><?php echo e($archiveNeighbors['older']['label']); ?></strong>
+                    </a>
                     <?php endif; ?>
                 </nav>
                 <?php endif; ?>

@@ -54,9 +54,11 @@ real `404` when no public month exists. It is sessionless, sends a strong ETag a
 `no-transform`, and disappears from the sitemap with the final public message.
 Monthly pages use indexed half-open timestamp ranges, chronological ordering, unique
 titles/descriptions, self-canonicals, sequential pagination links and visible
-`BreadcrumbList` markup. Arbitrary query mixing fails closed and an empty month is a
-real 404. Moderating its final public message removes the archive URL from both the UI
-and sitemap immediately.
+`BreadcrumbList` markup. They also link directly to the nearest newer and older
+populated UTC months, skipping empty and moderated-only gaps; boundary months omit the
+missing direction and an isolated month emits no empty navigation landmark. Arbitrary
+query mixing fails closed and an empty month is a real 404. Moderating its final public
+message removes the archive URL from the UI, navigation and sitemap immediately.
 
 The homepage exposes `WebSite` microdata with a visible matching site name. A message
 permalink exposes `DiscussionForumPosting`, `Person`, full visible text and an ISO
@@ -127,9 +129,9 @@ This implementation follows current primary guidance from
 1. **Information disclosure — medium likelihood/high impact:** a sitemap, archive,
    feed, structured-data projection or adjacent link could expose pending or moderated
    content. Mitigation: every generator, archive and neighbour query selects
-   `status = 'published'`; HTTP tests place a hidden fixture directly between public
-   neighbours and prove it is not linked, while existing tests prove immediate
-   removal from every discovery surface and a 404 for its now-empty month.
+   `status = 'published'`; HTTP tests place hidden fixtures directly between public
+   message and month neighbours and prove they are not linked, while existing tests
+   prove immediate removal from every discovery surface and a 404 for an empty month.
 2. **Tampering/spoofing — medium likelihood/medium impact:** visitor text could inject
    markup, misleading metadata or a hostile canonical URL. Mitigation: canonical URLs
    are application-generated from strictly positive numeric identifiers, clean paths
@@ -138,8 +140,8 @@ This implementation follows current primary guidance from
 3. **Denial of service — low likelihood/medium impact:** crawler bursts could repeatedly
    generate large XML documents, archive queries or permalink lookups. Mitigation: a
    strict 50,000-URL sitemap budget, a 120-month archive-index/sitemap bound, a
-   12-month homepage bound, indexed status/timestamp ranges, one bounded adjacent
-   lookup returning at most two IDs, normal page-size limits and the existing edge
+   12-month homepage bound, indexed status/timestamp ranges, bounded adjacent lookups
+   returning at most two identifiers, normal page-size limits and the existing edge
    request limit.
 4. **Accidental disclosure — low likelihood/medium impact:** convenience sharing could
    silently leak visitor text or navigation state. Mitigation: no automatic action,
@@ -162,10 +164,12 @@ sitemap XML with all three public information URLs, the sessionless Privacy page
 contract, the central archive index, a discovered calendar month, the exact robots
 sitemap directive and a current clean permalink through Cloudflare. The permalink
 probe verifies its archive breadcrumb and checks every rendered neighbour ID against
-the live database for published status. CI separately proves the legacy redirect is
-sessionless, canonical paths reject mixed parameters, hidden records remove both
-archive levels and cannot become adjacent links, and validates cache headers, XML,
-browser-visible microdata and explicit share invocation. On leakage, hide the record,
+the live database for published status. The discovered archive probe likewise checks
+every rendered adjacent month against published database rows. CI separately proves
+the legacy redirect is sessionless, canonical paths reject mixed parameters, hidden
+records remove both archive levels and cannot become adjacent links, and validates
+cache headers, XML, responsive navigation, browser-visible microdata and explicit
+share invocation. On leakage, hide the record,
 purge the affected Cloudflare cache object,
 remove the URL through the relevant search console when necessary, preserve logs and
 follow the [incident-response runbook](INCIDENT_RESPONSE.md). The current MTTD target
@@ -186,7 +190,7 @@ discovery extension adds zero vendors, subprocessors, cookies, packages or outbo
 
 ## Verdict and rollback
 
-**Verdict:** 🟡 MITIGATE THEN SHIP. Public permalink navigation adds no new data
+**Verdict:** 🟡 MITIGATE THEN SHIP. Public sequential navigation adds no new data
 class and its technical leakage/DoS controls and rollback are present; data-subject
 operations and post-deploy Search Console validation remain.
 

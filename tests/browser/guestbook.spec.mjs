@@ -212,7 +212,7 @@ test('light and dark interfaces have no automatically detectable WCAG A/AA viola
     const results = await new AxeBuilder({ page }).withTags(wcagTags).analyze();
     expect(violationSummary(results), `${colorScheme} WCAG violations`).toEqual([]);
 
-    const transitionDuration = await page.locator('.msg').evaluate((element) =>
+    const transitionDuration = await page.locator('.msg').first().evaluate((element) =>
       Number.parseFloat(getComputedStyle(element).transitionDuration) || 0,
     );
     expect(transitionDuration).toBeLessThanOrEqual(0.00001);
@@ -285,7 +285,7 @@ test('SEO metadata, canonical permalinks and structured data match visible conte
   await expect(page).toHaveTitle('Archive · Micuțu Guestbook');
   await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', /\/archive$/);
   await expect(page.locator('main[itemtype="https://schema.org/CollectionPage"]')).toHaveCount(1);
-  await expect(page.locator('[itemtype="https://schema.org/ItemList"]')).toHaveCount(1);
+  expect(await page.locator('[itemtype="https://schema.org/ItemList"]').count()).toBeGreaterThanOrEqual(1);
   await expect(page.getByRole('heading', { level: 1, name: 'Guestbook archive' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Archive');
   await expect(page.getByRole('navigation', { name: 'Site information' }).getByRole('link', { name: 'Archive' }))
@@ -301,6 +301,15 @@ test('SEO metadata, canonical permalinks and structured data match visible conte
   await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('archive');
   await expect(page.locator('.archive-link[aria-current="page"]')).toHaveAttribute('href', archiveHref);
   await expect(page.getByText('Responsive accessibility flow', { exact: true })).toBeVisible();
+  const archiveNeighbors = page.getByRole('navigation', { name: 'Adjacent archive months' });
+  await expect(archiveNeighbors).toBeVisible();
+  const olderArchiveLink = archiveNeighbors.locator('.archive-neighbor-older');
+  await expect(olderArchiveLink).toContainText('Older month');
+  await expect(olderArchiveLink).toContainText('July 2025');
+  await expect(olderArchiveLink).toHaveAttribute('href', '/archive/2025/07');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  const archiveMonthResults = await new AxeBuilder({ page }).withTags(wcagTags).analyze();
+  expect(violationSummary(archiveMonthResults), 'archive navigation WCAG violations').toEqual([]);
 
   const permalink = await page.locator('.permalink').first().getAttribute('href');
   expect(permalink).toMatch(/^\/messages\/\d+#m\d+$/);

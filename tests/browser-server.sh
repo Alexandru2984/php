@@ -35,6 +35,10 @@ cp -a -- "${repo_dir}/tests/router.php" "${app_dir}/tests/router.php"
 chmod -R a-w -- "${app_dir}"
 
 php "${app_dir}/scripts/migrate.php" >&2
+sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "INSERT INTO messages (author, content, created_at, status)
+     VALUES ('Archive browser fixture', 'Older public archive fixture',
+             '2025-07-15 12:00:00', 'published');"
 
 php -d "session.save_path=${tmp_dir}/sessions" \
     -S "127.0.0.1:${port}" -t "${app_dir}" "${app_dir}/tests/router.php" &

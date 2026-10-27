@@ -542,13 +542,15 @@ body {
 
 .feed { display: flex; flex-direction: column; gap: 16px; }
 
-.message-neighbors {
+.message-neighbors,
+.archive-neighbors {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
     margin-top: 22px;
 }
-.message-neighbor {
+.message-neighbor,
+.archive-neighbor {
     display: flex;
     min-height: 64px;
     flex-direction: column;
@@ -562,10 +564,14 @@ body {
     text-decoration: none;
     transition: border-color .15s, color .15s, transform .15s;
 }
-.message-neighbor span { color: var(--text-muted); font-size: .78rem; }
-.message-neighbor strong { font-size: .95rem; }
-.message-neighbor:hover { border-color: var(--primary); color: var(--primary); transform: translateY(-1px); }
-.message-neighbor-older { grid-column: 2; align-items: flex-end; text-align: right; }
+.message-neighbor span,
+.archive-neighbor span { color: var(--text-muted); font-size: .78rem; }
+.message-neighbor strong,
+.archive-neighbor strong { font-size: .95rem; }
+.message-neighbor:hover,
+.archive-neighbor:hover { border-color: var(--primary); color: var(--primary); transform: translateY(-1px); }
+.message-neighbor-older,
+.archive-neighbor-older { grid-column: 2; align-items: flex-end; text-align: right; }
 
 .pager {
     display: flex; align-items: center; justify-content: space-between;
@@ -1279,8 +1285,12 @@ body {
     .archive-heading { align-items: flex-start; flex-direction: column; gap: 2px; }
     .archive-index-list { grid-template-columns: 1fr; }
     .archive-index-year-heading { align-items: flex-start; flex-direction: column; gap: 2px; }
-    .message-neighbors { grid-template-columns: 1fr; }
-    .message-neighbor-older { grid-column: 1; align-items: flex-start; text-align: left; }
+    .message-neighbors, .archive-neighbors { grid-template-columns: 1fr; }
+    .message-neighbor-older, .archive-neighbor-older {
+        grid-column: 1;
+        align-items: flex-start;
+        text-align: left;
+    }
     .public-page .brand { font-size: 1.15rem; gap: 9px; }
     .public-page .brand .logo { width: 40px; height: 40px; }
     .policy-hero { margin-top: 12px; }

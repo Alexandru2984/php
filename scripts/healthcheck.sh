@@ -325,6 +325,41 @@ if [[ -n "${archive_path}" ]]; then
         || fail seo archive-canonical-missing
     [[ "${archive_html}" == *'itemtype="https://schema.org/BreadcrumbList"'* ]] \
         || fail seo archive-breadcrumb-missing
+    # Extract only canonical adjacent-month paths before checking their live state.
+    # shellcheck disable=SC2016
+    archive_neighbor_keys="$("${php_cli[@]}" -r '
+        $html = stream_get_contents(STDIN);
+        preg_match_all(
+            "~<a class=\"archive-neighbor archive-neighbor-(?:newer|older)\"\\s+href=\"/archive/([12][0-9]{3}/(?:0[1-9]|1[0-2]))\">~",
+            $html,
+            $matches
+        );
+        $keys = array_values(array_unique($matches[1] ?? []));
+        if (count($keys) > 2 || count($keys) !== count($matches[1] ?? [])) { exit(1); }
+        echo implode(",", $keys);
+    ' <<<"${archive_html}")" || fail seo archive-neighbor-shape-invalid
+    if [[ -n "${archive_neighbor_keys}" ]]; then
+        IFS=',' read -r -a archive_neighbor_list <<<"${archive_neighbor_keys}"
+        current_archive_key="${archive_path#/archive/}"
+        for archive_neighbor_key in "${archive_neighbor_list[@]}"; do
+            [[ "${archive_neighbor_key}" != "${current_archive_key}" ]] \
+                || fail seo archive-neighbor-self-reference
+            archive_neighbor_db_key="${archive_neighbor_key/\//-}"
+            published_archive_neighbor_count="$(sqlite3 -batch "${db_path}" \
+                "SELECT COUNT(*) FROM messages
+                 WHERE status = 'published'
+                   AND created_at >= '${archive_neighbor_db_key}-01 00:00:00'
+                   AND created_at < datetime(
+                       '${archive_neighbor_db_key}-01 00:00:00', '+1 month'
+                   );")" \
+                || fail seo archive-neighbor-query-failed
+            [[ "${published_archive_neighbor_count}" -gt 0 ]] \
+                || fail seo archive-neighbor-status-invalid
+        done
+        unset archive_neighbor_db_key archive_neighbor_key archive_neighbor_list \
+            current_archive_key published_archive_neighbor_count
+    fi
+    unset archive_neighbor_keys
     unset archive_index_html archive_html
 fi
 unset archive_path sitemap_document

@@ -389,6 +389,47 @@ check(
     ),
     'calendar archive range uses the published timestamp index'
 );
+$archiveNeighborDb = new PDO('sqlite::memory:');
+$archiveNeighborDb->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+$archiveNeighborDb->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+foreach ($migrationFiles as $migrationFile) {
+    $archiveNeighborDb->exec((string) file_get_contents($migrationFile));
+}
+$archiveNeighborDb->exec(
+    "INSERT INTO messages (author, content, created_at, status)
+     VALUES ('July public', 'Oldest public month', '2026-07-15 12:00:00', 'published'),
+            ('August hidden', 'Hidden month', '2026-08-15 12:00:00', 'hidden'),
+            ('September public', 'Older public month', '2026-09-15 12:00:00', 'published'),
+            ('October public', 'Current public month', '2026-10-15 12:00:00', 'published'),
+            ('October pending', 'Pending in current month', '2026-10-20 12:00:00', 'pending'),
+            ('November public', 'Newer public month', '2026-11-15 12:00:00', 'published'),
+            ('January public', 'Newest public month', '2027-01-15 12:00:00', 'published')"
+);
+check(
+    public_archive_neighbors($archiveNeighborDb, 2026, 10) === ['newer' => '2026-11', 'older' => '2026-09']
+        && public_archive_neighbors($archiveNeighborDb, 2026, 9) === ['newer' => '2026-10', 'older' => '2026-07']
+        && public_archive_neighbors($archiveNeighborDb, 2026, 7) === ['newer' => '2026-09', 'older' => null]
+        && public_archive_neighbors($archiveNeighborDb, 2027, 1) === ['newer' => null, 'older' => '2026-11'],
+    'archive navigation finds adjacent populated public months and skips hidden gaps'
+);
+check(
+    public_archive_neighbors($archiveNeighborDb, 2026, 8) === null
+        && public_archive_neighbors($archiveNeighborDb, 2026, 12) === null,
+    'non-public and empty months cannot produce archive navigation'
+);
+$archiveNeighborPlan = $archiveNeighborDb->query(
+    "EXPLAIN QUERY PLAN
+     SELECT substr(created_at, 1, 7) FROM messages
+     WHERE status = 'published' AND created_at < '2026-10-01 00:00:00'
+     ORDER BY created_at DESC, id DESC LIMIT 1"
+)->fetchAll();
+check(
+    str_contains(
+        implode(' ', array_map(static fn(array $row): string => (string) $row['detail'], $archiveNeighborPlan)),
+        'idx_messages_status_created'
+    ),
+    'adjacent archive lookup uses the published timestamp index'
+);
 $rssFixture = public_rss_xml($seoDb);
 check(
     str_contains($rssFixture, 'Public &amp; indexable')

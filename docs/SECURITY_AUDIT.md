@@ -15,7 +15,7 @@ checks before and after migration. Detection, a privacy disclosure, reversible
 moderation, category-only abuse reporting, explainable submission-risk review, an
 indexed private moderation workspace with privacy-minimal operational aggregates,
 public indexed search, a sessionless central calendar archive, published-only
-permalink navigation, private author export/withdrawal and an incident-response runbook are now
+message/month navigation, private author export/withdrawal and an incident-response runbook are now
 deployed. R2 and Google Drive both hold verified encrypted backups; the Drive remote
 still needs its own OAuth client before rclone retires the shared client. Real-browser Axe, reflow and keyboard checks now gate
 CI. First-party social preview metadata and single-message curation add no new vendor
@@ -43,7 +43,7 @@ incomplete.
   sandboxed service identity. Daily jobs and the weekly restore timer are enabled;
   restored disposable backups pass integrity, foreign-key, migration and schema
   checks. The restore unit's systemd exposure score was `0.8 SAFE` at rollout.
-- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 165 unit
+- The application test gate passes PHP/JS/CSS/Bash validation, ShellCheck, 168 unit
   tests, HTTP/FTS integration, moderation lifecycle, health alerting and compressed
   backup/restore rejection tests. A separate Chromium job checks five viewport widths,
   primary 44px touch targets, keyboard focus, nine post/search/moderation/owner flows,
@@ -76,7 +76,7 @@ incomplete.
 | S-17 | Low | Real-browser CI is implemented; human accessibility and repository enforcement remain. | Exact-version Playwright/Axe checks run against isolated state at 320–1440px, enforce WCAG A/AA rules in both themes, keyboard focus, touch targets and zero overflow. Automated review caught and fixed contrast and accessible-name defects. Lighthouse, 200% zoom, screen-reader sign-off and confirmation that the job is required by branch protection remain open. | Complete and record the manual matrix, add Lighthouse budgets, then require both CI jobs in GitHub branch protection after push. |
 | S-18 | Low | Indexed search removes routine full scans; a dedicated edge limit remains absent. | FTS5 uses generated prepared prefix terms capped at eight, indexed Unicode tokenization, bounded pagination and a published-only join. Hostile FTS grammar, trigger synchronization, query plans and restored-index integrity are tested. Distributed query floods can still create SQLite/CPU contention. | Add a search-specific Cloudflare rate limit and latency/SQLite-busy alert without logging visitor query text. |
 | S-19 | Medium | Explainable review catches common automation patterns; distributed and novel abuse remains. | Fixed Unicode/link/name/repetition/timing signals plus 24-hour keyed duplicate detection queue at score 40 without auto-deletion. Public surfaces exclude pending content, admin release is reversible and a ten-item pending backlog alerts. Content variation or distributed clients can evade application-local signals, while false positives wait for human review. | Add separate edge limits for post/search/API, measure false-positive and queue latency without message telemetry, then consider accessible risk-triggered Turnstile and expiring allow/block entries. |
-| S-20 | Low | Public discovery and trust pages are explicit; search-console governance remains manual. | Sitemap, a bounded sessionless `/archive` index, UTC monthly archives, RSS, JSON Feed, About/Privacy/Moderation pages, permalink archive breadcrumbs and published-only adjacent links expose only intended public documents; search/admin views are noindex, clean paths reject mixed parameters, empty or unavailable resources return 404, and production health probes discovery plus the Privacy contract. Sharing requires a visitor click, exposes only a canonical URL plus generic title and loads no social SDK. Search-engine recrawl/removal, ownership alerts and erasure workflows are not automated. | Verify both major search consoles, monitor coverage/rich-result errors, document cache purge and URL removal, and complete the data-subject workflow. |
+| S-20 | Low | Public discovery and trust pages are explicit; search-console governance remains manual. | Sitemap, a bounded sessionless `/archive` index, UTC monthly archives, RSS, JSON Feed, About/Privacy/Moderation pages, permalink archive breadcrumbs and published-only adjacent message/month links expose only intended public documents; search/admin views are noindex, clean paths reject mixed parameters, empty or unavailable resources return 404, and production health probes discovery plus the Privacy contract. Sharing requires a visitor click, exposes only a canonical URL plus generic title and loads no social SDK. Search-engine recrawl/removal, ownership alerts and erasure workflows are not automated. | Verify both major search consoles, monitor coverage/rich-result errors, document cache purge and URL removal, and complete the data-subject workflow. |
 | S-21 | High | The active Telegram bot token exists in local agent-session history. | A fingerprint-only comparison found the current token in three local history files. Two Codex histories were mode `0664`; they and the containing session directories are now owner-only (`0600`/`0700`). The secret remains valid and present in retained history, so permission hardening limits local exposure but does not revoke copies. The token was not added to this repository. | Regenerate the token through BotFather, atomically update the root-owned bot credential, restart and verify the allow-listed chat, then redact or securely remove historical copies under an approved retention plan. Enforce owner-only creation permissions for all future agent transcripts. |
 | S-22 | Low | Local drafts improve resilience but can leave message text on a shared device. | Draft storage is off by default, explicitly device-scoped in the UI, bounded to server field limits, expires after 24 hours and is deleted after successful submission or on request. The text-only preview uses DOM `textContent`; browser tests prove markup does not create elements or execute. A user with access to the same unlocked browser profile can still read an opted-in draft. | Keep opt-in off by default, do not sync drafts server-side, retain the clear control and re-evaluate before adding accounts, cloud sync or longer retention. |
 | S-23 | Low | Featured-message curation adds an admin-controlled ranking signal. | A stolen admin session could promote one already-public message, but cannot feature moderated content. Same-origin CSRF-protected POST, an expiring admin session, a one-row database constraint, append-only feature/unfeature audit and automatic clearing on moderation bound the impact. | Monitor unexpected feature audit events, rotate the admin credential/session on compromise and retain the one-message/public-only invariant. |
@@ -86,6 +86,7 @@ incomplete.
 | S-27 | Low | Bounded bulk moderation reduces repetitive triage without adding a mass-publication or purge path. | An authenticated, same-origin, CSRF-protected request carries 1–20 unique canonical IDs. A locked preflight and one transaction make the batch all-or-nothing; owner-withdrawn or unchanged rows reject it. Only pending/hidden/spam/soft-delete targets exist, each changed row is append-only audited, and the aggregate security event carries no IDs. A stolen valid admin session can repeat bounded requests and suppress every eligible message before expiry. | Preserve the no-bulk-publish/no-purge boundary, review unexpected audit bursts, invalidate sessions on suspected compromise and complete a measured credential-takeover tabletop. |
 | S-28 | Medium | Self-service export is narrowly projected, but a stolen owner capability becomes a confidentiality path. | The protected attachment contains only one message number, submitted name/text, submission time and current state. It excludes network hashes, fingerprints, risk/review metadata, moderation reasons and capability material. Same-origin POST, two CSRF checks, no-store headers, JSON attachment handling, audit/security events and a shared owner-action alert constrain the path. A valid stolen cookie can still retrieve that message without a distinct real-time alert. | Preserve the field allow-list and attachment/no-store contract, investigate unexpected export audits, invalidate exposed digests after a snapshot and complete the owner-capability tabletop. |
 | S-29 | Low | Sequential permalink navigation improves crawlability without expanding the intended public dataset. | One indexed query projects at most two IDs with an explicit published-state predicate, stable timestamp/ID ordering and fixed numeric paths. Hidden states are excluded and target routes independently return 404 when unavailable; a future predicate regression could still reveal a moderated numeric ID even though it would not reveal that message body. Production health checks rendered neighbour IDs against the database. | Preserve the published-only query and independent 404 boundary, monitor Search Console coverage and include permalink/cache removal in the disclosure tabletop. |
+| S-30 | Low | Adjacent-month navigation links the public archive sequence without exposing message fields. | One prepared indexed query projects at most two validated `YYYY/MM` keys, requires published rows in the current and target months and skips moderated-only gaps. Destination routes independently return 404 when empty, while production health checks every rendered month against SQLite. A future predicate regression could reveal that a moderated-only month exists, but not its count, author or content. | Preserve the published-only query and independent 404 boundary, monitor Search Console coverage and include archive-link/cache removal in the disclosure tabletop. |
 
 ## CISO review: moderation operational overview
 
@@ -692,6 +693,68 @@ The feature adds no migration, package, cookie, credential, external API, vendor
 processor. Cloudflare, the VPS and independent crawlers retain their existing roles;
 the analytics boundary is unchanged, and Telegram receives only a fixed health reason
 without a message ID or content.
+
+## CISO review: public archive-month navigation
+
+**Date:** 2026-10-27
+
+**Verdict:** 🟡 MITIGATE THEN SHIP — the navigation exposes only validated keys for
+already-public months and is continuously checked, but crawler/cache-removal response
+still lacks a measured human tabletop.
+
+### 1. Threat model (STRIDE top three)
+
+1. **Information disclosure (low likelihood, medium impact):** a missing publication
+   predicate could reveal that a moderated-only month exists. The current-month guard
+   and both neighbour branches require `status = 'published'`; HTTP fixtures place a
+   hidden-only month in the gap, and destination routes independently return 404.
+2. **Tampering/spoofing (low likelihood, medium impact):** malformed stored timestamps
+   could create deceptive or off-site paths. Only strict `YYYY-MM` values are accepted,
+   paths are generated server-side as same-origin `/archive/YYYY/MM` URLs, and labels
+   come from UTC date objects rather than visitor fields.
+3. **Denial of service (low likelihood, low impact):** archive crawling adds one lookup
+   per monthly page. The prepared CTE uses the status/timestamp index and returns at
+   most two keys; it introduces no recursion, write or unbounded result set.
+
+### 2. Blast radius and annual-loss input
+
+Each response adds at most two month keys that should already be public. The worst
+credible predicate defect reveals the existence of moderated-only months, not message
+counts, authors, bodies, network identifiers or secrets, because their target pages
+retain a published-only 404 boundary. Production contained three published messages
+at review time. FAIR/ALE cannot be responsibly quantified without incident frequency,
+response labour/rate and legal-cost inputs, so no monetary value is fabricated.
+
+### 3. Detection and MTTD
+
+Unit and HTTP tests cover hidden gaps, empty/current boundaries and both directions;
+Chromium checks the real navigation at 320px with Axe. Every five minutes, production
+health extracts at most two canonical month keys from the discovered archive page and
+requires at least one published SQLite row for each before the existing fixed-reason
+pager and Telegram route report success. The probe samples one discovered month rather
+than every archive URL, so a record-specific regression elsewhere may have manual or
+unknown MTTD.
+
+### 4. Response, runbook and exercise
+
+The incident runbook covers hiding the affected record, evidence preservation,
+Cloudflare cache purge, search-console URL removal and immutable rollback. Automated
+fixtures exercise the disclosure boundary, but a human crawler/cache-removal tabletop
+has not recorded containment time; the verdict therefore remains yellow.
+
+### 5. Regulatory window
+
+The feature collects no new personal data. A leaked month key alone is low-detail
+metadata, but if it enables inference about hidden personal content the controller must
+document a confidentiality assessment; a qualifying GDPR incident retains the
+supervisory-authority notification window of up to 72 hours from awareness.
+
+### 6. Vendors and supply chain
+
+No migration, package, cookie, credential, external API, vendor or processor is added.
+Cloudflare, the VPS and independent crawlers retain their existing roles; analytics is
+unchanged, and Telegram receives only a fixed health reason without a month key or
+message data.
 
 ## Controls verified
 

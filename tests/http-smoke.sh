@@ -357,6 +357,10 @@ archive_page_one="$(curl --silent --show-error --fail "${APP_ORIGIN}/archive/202
 grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}/archive/2025/07\">" <<<"${archive_page_one}"
 grep --fixed-strings --quiet "<link rel=\"next\" href=\"${APP_ORIGIN}/archive/2025/07?page=2\">" <<<"${archive_page_one}"
 grep --fixed-strings --quiet 'Temporary archive fixture 11' <<<"${archive_page_one}"
+if grep --fixed-strings --quiet 'aria-label="Adjacent archive months"' <<<"${archive_page_one}"; then
+    echo 'An isolated archive month rendered empty adjacent navigation.' >&2
+    exit 1
+fi
 if grep --fixed-strings --quiet 'Temporary archive fixture 1</p>' <<<"${archive_page_one}"; then
     echo 'Archive pagination exposed a record from the next page.' >&2
     exit 1
@@ -570,12 +574,39 @@ if grep --fixed-strings --quiet 'Hello from the isolated smoke test' <<<"${archi
     echo 'Archive index exposed published message content instead of an aggregate.' >&2
     exit 1
 fi
+sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "INSERT INTO messages (author, content, created_at, status)
+     SELECT 'Older archive neighbor', 'Older public archive month',
+            datetime(created_at, 'start of month', '-2 months', '+12 hours'), 'published'
+     FROM messages WHERE id = ${message_id};
+     INSERT INTO messages (author, content, created_at, status)
+     SELECT 'Hidden archive neighbor', 'Hidden archive month',
+            datetime(created_at, 'start of month', '-1 month', '+12 hours'), 'hidden'
+     FROM messages WHERE id = ${message_id};"
+older_archive_key="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT substr(created_at, 1, 7) FROM messages WHERE author = 'Older archive neighbor';")"
+hidden_archive_key="$(sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "SELECT substr(created_at, 1, 7) FROM messages WHERE author = 'Hidden archive neighbor';")"
+older_archive_path="/archive/${older_archive_key/-//}"
+hidden_archive_path="/archive/${hidden_archive_key/-//}"
 archive_html="$(curl --silent --show-error --fail "${APP_ORIGIN}${archive_path}")"
 grep --fixed-strings --quiet "<link rel=\"canonical\" href=\"${APP_ORIGIN}${archive_path}\">" <<<"${archive_html}"
 grep --fixed-strings --quiet ' archive · Micuțu Guestbook</title>' <<<"${archive_html}"
 grep --fixed-strings --quiet 'itemtype="https://schema.org/BreadcrumbList"' <<<"${archive_html}"
 grep --fixed-strings --quiet 'aria-current="page"' <<<"${archive_html}"
+grep --fixed-strings --quiet 'aria-label="Adjacent archive months"' <<<"${archive_html}"
+grep --fixed-strings --quiet "href=\"${older_archive_path}\"" <<<"${archive_html}"
+if grep --fixed-strings --quiet "href=\"${hidden_archive_path}\"" <<<"${archive_html}"; then
+    echo 'Archive navigation exposed a moderated-only month.' >&2
+    exit 1
+fi
 [[ "$(grep -o 'Hello from the isolated smoke test' <<<"${archive_html}" | wc -l)" == 1 ]]
+older_archive_html="$(curl --silent --show-error --fail "${APP_ORIGIN}${older_archive_path}")"
+grep --fixed-strings --quiet 'aria-label="Adjacent archive months"' <<<"${older_archive_html}"
+grep --fixed-strings --quiet "href=\"${archive_path}\"" <<<"${older_archive_html}"
+[[ "$(request_code "${APP_ORIGIN}${hidden_archive_path}")" == 404 ]]
+sqlite3 "${APP_STORAGE_DIR}/database.sqlite" \
+    "DELETE FROM messages WHERE author IN ('Older archive neighbor', 'Hidden archive neighbor');"
 [[ "$(request_code --head "${APP_ORIGIN}${archive_path}")" == 200 ]]
 [[ "$(request_code "${APP_ORIGIN}${archive_path}?q=isolated")" == 400 ]]
 feed_populated="$(curl --silent --show-error "${APP_ORIGIN}/feed.xml")"

@@ -51,7 +51,9 @@ sqlite3 "${storage_dir}/database.sqlite" \
     "INSERT INTO messages (author, content, created_at, status)
      VALUES ('Health fixture', 'Public archive health fixture', CURRENT_TIMESTAMP, 'published'),
             ('Neighbor fixture', 'Public neighbor health fixture',
-             datetime(CURRENT_TIMESTAMP, '-1 minute'), 'published');"
+             datetime(CURRENT_TIMESTAMP, '-1 minute'), 'published'),
+            ('Archive neighbor fixture', 'Public prior-month health fixture',
+             datetime(CURRENT_TIMESTAMP, 'start of month', '-2 months', '+12 hours'), 'published');"
 chmod 0600 "${storage_dir}/database.sqlite"
 snapshot="${tmp_dir}/database.sqlite"
 sqlite3 "${storage_dir}/database.sqlite" ".backup '${snapshot}'"

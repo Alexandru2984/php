@@ -15,7 +15,8 @@ and the staged [product and security roadmap](docs/ROADMAP.md).
 - Crawlable newer/older navigation on message permalinks with a UTC month
   breadcrumb, stable ordering and published-only boundaries.
 - Responsive UTC calendar discovery at `/archive` plus clean `/archive/YYYY/MM`
-  pages, canonical pagination, semantic breadcrumbs and published-only counts.
+  pages, canonical pagination, semantic breadcrumbs, published-only counts and
+  crawlable navigation between populated months.
 - Progressive native sharing with a local clipboard fallback and no third-party SDK.
 - Opt-in 24-hour local drafts and a text-only preview that never renders visitor HTML.
 - A single moderator-selected featured message with atomic replacement, reversible

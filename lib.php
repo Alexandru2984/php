@@ -143,6 +143,78 @@ function public_archive_path(int $year, int $month, int $page = 1): string
     return $page === 1 ? $path : $path . '?page=' . $page;
 }
 
+/**
+ * Return the nearest populated public UTC months around one archive month.
+ * A month without published messages returns null.
+ *
+ * @return array{newer:?string, older:?string}|null
+ */
+function public_archive_neighbors(PDO $pdo, int $year, int $month): ?array
+{
+    public_archive_path($year, $month);
+    $archiveDate = DateTimeImmutable::createFromFormat(
+        '!Y-m',
+        sprintf('%04d-%02d', $year, $month),
+        new DateTimeZone('UTC')
+    );
+    if (!$archiveDate instanceof DateTimeImmutable) {
+        throw new InvalidArgumentException('Invalid archive month');
+    }
+    $archiveStart = $archiveDate->format('Y-m-01 00:00:00');
+    $archiveEnd = $archiveDate->modify('first day of next month')->format('Y-m-01 00:00:00');
+
+    $stmt = $pdo->prepare(
+        "WITH current_archive AS (
+             SELECT 1 AS present
+             FROM messages
+             WHERE status = 'published'
+               AND created_at >= :archive_start
+               AND created_at < :archive_end
+             LIMIT 1
+         )
+         SELECT
+             (
+                 SELECT substr(m.created_at, 1, 7)
+                 FROM messages AS m, current_archive
+                 WHERE m.status = 'published' AND m.created_at >= :archive_end
+                 ORDER BY m.created_at ASC, m.id ASC
+                 LIMIT 1
+             ) AS newer_month,
+             (
+                 SELECT substr(m.created_at, 1, 7)
+                 FROM messages AS m, current_archive
+                 WHERE m.status = 'published' AND m.created_at < :archive_start
+                 ORDER BY m.created_at DESC, m.id DESC
+                 LIMIT 1
+             ) AS older_month
+         FROM current_archive"
+    );
+    $stmt->execute([
+        ':archive_start' => $archiveStart,
+        ':archive_end' => $archiveEnd,
+    ]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($row === false) {
+        return null;
+    }
+
+    $normalizeMonth = static function (mixed $value): ?string {
+        if ($value === null) {
+            return null;
+        }
+        if (!is_string($value)
+            || preg_match('/\A[12][0-9]{3}-(?:0[1-9]|1[0-2])\z/D', $value) !== 1) {
+            throw new RuntimeException('Invalid adjacent archive month');
+        }
+        return $value;
+    };
+
+    return [
+        'newer' => $normalizeMonth($row['newer_month'] ?? null),
+        'older' => $normalizeMonth($row['older_month'] ?? null),
+    ];
+}
+
 /** Return the trusted metadata for public, sessionless information pages. */
 function public_info_pages(): array
 {
